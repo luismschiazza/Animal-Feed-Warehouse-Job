@@ -1,230 +1,207 @@
-# Agora API
+# Animal Feed Warehouse API
 
-## Overview
+API para a futura gestão de estoque, loja e depósito de rações, acessórios e produtos para pets. O projeto está sendo modernizado a partir de uma base NestJS existente.
 
-Agora API is a scalable backend service built with **NestJS**, designed to support modern application ecosystems.
-It provides a solid architectural foundation including user authentication, email sending, code generation tooling, and MongoDB integration.
-The project prioritizes clean structure, reliable development workflows, and full Docker support.
+> **Estado atual:** a fundação técnica, autenticação, usuários e modernização de papéis estão em desenvolvimento. Os módulos comerciais — produtos, estoque, compras, vendas, caixa e financeiro — ainda serão implementados. Não use a aplicação atual como um ERP/PDV pronto para produção.
 
+## Objetivo do produto
 
----
+Centralizar a operação de uma loja e depósito de rações:
 
-## Requirements
+- cadastro de produtos, marcas, categorias e unidades;
+- controle de saldo por loja e depósito;
+- entradas, saídas, ajustes, perdas e transferências;
+- fornecedores, compras e recebimento de mercadorias;
+- clientes, vendas e caixa;
+- lotes, validade e alertas de estoque mínimo;
+- relatórios, auditoria e, posteriormente, integração fiscal (NFe/NFC-e).
 
-To run this project, ensure your machine has the following:
+## Tecnologias
 
-- [Node.js (24.x LTS)](https://nodejs.org/)
-- [npm (>=11.3)](https://www.npmjs.com/)
-- [Docker Engine (>= 20.x)](https://www.docker.com/)
-- [Docker Compose Plugin (>= 2.x)](https://docs.docker.com/compose/)
-- [nvm installed](https://github.com/nvm-sh/nvm) 
+- [NestJS 11](https://nestjs.com/) e TypeScript;
+- MongoDB e Mongoose;
+- JWT, Passport e bcrypt;
+- Swagger/OpenAPI;
+- Jest e ESLint;
+- Docker e Docker Compose.
 
----
+## Autenticação e autorização
 
-## Installation
+A API usa JWT com access token e refresh token. A autorização está sendo evoluída de RBAC para ABAC/PBAC.
 
-### 1. Clone the Repository
+### Papéis atuais
 
-```bash
-git clone https://github.com/luismschiazza/agora-api.git
-cd agora-api
-```
+| Papel | Responsabilidade inicial |
+|---|---|
+| `SYSTEM_ADMIN` | Administração técnica, usuários e papéis. |
+| `ORGANIZATION_OWNER` | Responsável pela organização. |
+| `MANAGER` | Gestão operacional. |
+| `INVENTORY_OPERATOR` | Operação de estoque e depósito. |
+| `SALES_ASSOCIATE` | Vendas e atendimento. |
+| `CASHIER` | Caixa e recebimentos. |
+| `PURCHASING_AGENT` | Compras e fornecedores. |
+| `FINANCIAL_ANALYST` | Financeiro e conciliação. |
+| `AUDITOR` | Consulta de auditoria e relatórios autorizados. |
+| `CUSTOMER` | Cliente: acesso futuro aos próprios dados e pedidos. |
 
-### 2. Load the Recommended Node Version
+Papéis não devem ser a única decisão de acesso. Nas próximas etapas, as políticas avaliarão atributos do usuário, do recurso e do contexto — por exemplo: organização, proprietário do registro, local de estoque, vínculo e estado da conta.
 
-```bash
-nvm install
-nvm use
-```
+A matriz inicial está em [`docs/authorization/ROLE_AND_PERMISSION_MATRIX.md`](docs/authorization/ROLE_AND_PERMISSION_MATRIX.md).
 
-### 3. Environment Variables
+## Requisitos
 
-Copy the example configuration file:
+- Node.js 24.x (veja `.nvmrc`);
+- npm 11 ou superior;
+- MongoDB 8 ou Docker;
+- Docker Engine e Docker Compose, opcionalmente.
 
-```bash
-cp .env.example .env
-```
+## Configuração local
 
-After creating the `.env` file, run the command `npm run cli -- generate:jwt-secret` to automatically generate and populate the `JWT_SECRET` value in your `.env` file.
-
-Then update `.env` with your environment values, such as:
-
-- Application host and ports
-- MongoDB connection URL
-- JWT secrets and expiration settings
-
-### 4. Install Dependencies
-
-Using npm:
+### 1. Instale as dependências
 
 ```bash
 npm install
 ```
 
----
+### 2. Configure o ambiente
 
-## Running the Project
+Copie o exemplo:
 
-You may run the project using Docker or run MongoDB in Docker and NestJS locally.
+```bash
+cp .env.example .env
+```
 
----
+No Windows PowerShell:
 
-## Running with Docker
+```powershell
+Copy-Item .env.example .env
+```
 
-### Start Only MongoDB (Recommended for Development)
+Gere o segredo JWT:
+
+```bash
+npm run cli -- generate:jwt-secret
+```
+
+Defina pelo menos:
+
+```env
+HOST=0.0.0.0
+PORT=3000
+MONGO_URL=mongodb://localhost:27017/animal-feed-warehouse
+JWT_SECRET=<segredo-forte-gerado>
+JWT_EXPIRES_IN=24h
+CORS_ORIGIN=http://localhost:5173
+CORS_CREDENTIALS=true
+```
+
+Nunca envie o arquivo `.env`, senhas SMTP ou segredos JWT ao Git.
+
+### 3. Inicie o MongoDB
+
+Com Docker:
 
 ```bash
 docker compose up -d mongo-db
 ```
 
-Then start NestJS locally with hot reload:
+Ou execute uma instância local do MongoDB.
+
+### 4. Inicie a API
 
 ```bash
 npm run start:dev
 ```
 
-### Run Everything in Docker
+A API ficará disponível em `http://localhost:3000/api`.
 
-If you prefer both MongoDB and the API inside Docker containers:
+## Documentação da API
 
-```bash
-docker compose up -d
-```
+Com a aplicação em execução:
 
-> Note: If your Docker installation does not support `docker compose`, use `docker-compose` instead.
+- Swagger UI: `http://localhost:3000/api/docs`
+- Documento OpenAPI: `http://localhost:3000/api/docs-json`
 
----
-
-## Running without Docker
-
-If you prefer local execution without containers:
-
-### Start MongoDB Locally
+## Comandos úteis
 
 ```bash
-mongod
-```
+# Compilar
+npm run build
 
-### Run the NestJS Application
+# Executar testes
+npm test -- --runInBand
 
-```bash
+# Executar lint
+npm run lint
+
+# Formatar arquivos TypeScript
+npm run format
+
+# Iniciar em desenvolvimento
 npm run start:dev
+
+# Gerar segredo JWT
+npm run cli -- generate:jwt-secret
+
+# Popular dados de demonstração legados
+npm run cli -- seed
 ```
 
----
+> O seed atual pertence à base anterior e será substituído por dados de produtos, estoque e organização quando os módulos comerciais forem criados.
 
-## Available Commands
+## Roadmap
 
-The project includes several useful development scripts defined in `package.json`.
+O Kanban e as issues da modernização estão no repositório. A ordem de implementação é:
 
-### General Commands
+1. papéis empresariais e matriz de permissões — concluído;
+2. sessões independentes por dispositivo e rotação segura de refresh token;
+3. motor de políticas PBAC;
+4. ABAC e isolamento por organização/recurso;
+5. auditoria e testes de segurança;
+6. produtos, categorias, marcas e unidades;
+7. locais, saldo e movimentações de estoque;
+8. fornecedores, compras e recebimento;
+9. clientes, vendas e caixa;
+10. financeiro, relatórios e alertas;
+11. NFe/NFC-e e demais integrações fiscais.
 
-- **`npm run build`**
-  Compiles TypeScript into JavaScript in the `dist` folder.
+## Qualidade e segurança
 
-- **`npm start`**
-  Runs the compiled application in production mode.
+Antes de abrir um pull request, execute:
 
-- **`npm run start:dev`**
-  Runs the application with hot reload enabled.
-  Recommended for development.
+```bash
+npm test -- --runInBand
+npm run build
+npm run lint
+```
 
-- **`npm run start:prod`**
-  Runs the application in production mode.
+Diretrizes obrigatórias:
 
-- **`npm test`**
-  Executes unit tests using Jest.
+- validar autorização no servidor em toda rota protegida;
+- negar acesso por padrão;
+- não expor senhas, JWTs ou refresh tokens em logs;
+- não permitir que cadastro público defina papéis administrativos;
+- criar testes de sucesso e negação para cada política nova;
+- não excluir registros comerciais críticos sem estratégia de auditoria/soft delete.
 
-- **`npm run format`**
-  Formats source code using Prettier.
+## Estrutura principal
 
-- **`npm run lint`**
-  Lints the codebase using ESLint and automatically fixes issues.
+```text
+src/
+  common/                 # Guards, decorators, pipes e infraestrutura compartilhada
+  config/                 # Validação de variáveis de ambiente
+  features/
+    auth/                 # Login, JWT e refresh token
+    users/                # Usuários e papéis
+    mail/                 # Infraestrutura de e-mail
+  infrastructure/database # MongoDB/Mongoose
 
-### Console Commands
+docs/
+  authorization/          # Matriz de permissões e material de estudo
+  issues/                 # Planejamento versionado
+  kanban/                 # Kanban da modernização
+```
 
-- **`npm run cli -- seed`**
-  Seeds the database with demo data.
+## Licença
 
-- **`npm run cli -- generate:jwt-secret`**
-  Generates a secure JWT secret and updates the .env file.
-
----
-
-## Docker Reference Commands
-
-Below are useful Docker commands for local development:
-
-- Start services
-  ```bash
-  docker compose up -d
-  ```
-
-- Stop all running containers
-  ```bash
-  docker stop $(docker ps -q)
-  ```
-
-- Remove all containers
-  ```bash
-  docker rm $(docker ps -a -q)
-  ```
-
-- Remove all images
-  ```bash
-  docker rmi $(docker images -q)
-  ```
-
-- Clean unused resources
-  ```bash
-  docker system prune -a --volumes
-  ```
-
-- View container logs
-  ```bash
-  docker logs <container_id>
-  ```
-
-- Build an image
-  ```bash
-  docker build -t <image_name> .
-  ```
-
-- Run a container
-  ```bash
-  docker run -d -p <host_port>:<container_port> <image_name>
-  ```
-
----
-
-## API Documentation
-
-The project now includes full Swagger documentation available at `/api/docs`.  
-You can also import this API specification directly into Postman:
-
-### Importing Swagger into Postman
-1. Start the application (`npm run start:dev`).
-2. Open your browser at: `http://localhost:3000/api/docs-json`
-3. Copy the full JSON returned by the endpoint.
-4. In Postman, click **Import**.
-5. Select **Link** or **Raw Text** and paste the JSON.
-6. Postman will automatically generate a full collection with all endpoints, payload examples, and authentication requirements.
-
-### Why Use Swagger + Postman?
-- Ensures your API documentation always stays up to date.
-- Works as a single source of truth for backend and frontend teams.
-- Allows you to share a ready‑to‑use Postman collection with your team or client.
-
-More documentation can be added in the future such as:
-- Contribution guidelines
-- Production deployment instructions
-- Versioning and release workflow
-
----
-
-## Conclusion
-
-This README provides a clean and complete guide for setting up and running the Agora API.
-It includes installation steps, environment setup, Docker instructions, and available development commands.
-
-If you need additional sections such as Swagger documentation, deployment guides, or contribution guidelines, feel free to request them.
+Projeto privado. Todos os direitos reservados.
