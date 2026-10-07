@@ -54,7 +54,7 @@ describe('AuthService', () => {
       email: 'developer@example.com',
       name: 'Developer',
       password: passwordHash,
-      roles: [Role.ADMIN],
+      roles: [Role.SYSTEM_ADMIN],
     });
 
     const user = await service.validateUser(' Developer@Example.com ', password);
@@ -66,7 +66,7 @@ describe('AuthService', () => {
       id: 'user-id',
       email: 'developer@example.com',
       name: 'Developer',
-      roles: [Role.ADMIN],
+      roles: [Role.SYSTEM_ADMIN],
     });
     expect(user).not.toHaveProperty('password');
   });
@@ -80,7 +80,7 @@ describe('AuthService', () => {
       id: 'user-id',
       email: 'developer@example.com',
       name: 'Developer',
-      roles: [Role.ADMIN],
+      roles: [Role.SYSTEM_ADMIN],
     });
     expect(response).toMatchObject({
       access_token: 'signed-token',
@@ -95,7 +95,7 @@ describe('AuthService', () => {
     expect(mockJwtService.sign).toHaveBeenCalledWith({
       sub: 'user-id',
       email: 'developer@example.com',
-      roles: [Role.ADMIN],
+      roles: [Role.SYSTEM_ADMIN],
     });
   });
 
@@ -110,7 +110,7 @@ describe('AuthService', () => {
       id: 'user-id',
       email: 'developer@example.com',
       name: 'Developer',
-      roles: [Role.ADMIN],
+      roles: [Role.SYSTEM_ADMIN],
       refreshTokenHash,
     });
 

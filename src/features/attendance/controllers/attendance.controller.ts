@@ -31,7 +31,7 @@ export class AttendancesController {
   constructor(private readonly attendancesService: AttendancesService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
@@ -53,7 +53,7 @@ export class AttendancesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Get(':id')
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -66,7 +66,7 @@ export class AttendancesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
@@ -80,7 +80,7 @@ export class AttendancesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Delete(':id')
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

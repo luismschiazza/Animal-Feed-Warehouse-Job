@@ -40,7 +40,7 @@ export class UserDto {
 
   @ApiProperty({
     description: 'Roles assigned to the user',
-    example: [Role.STUDENT],
+    example: [Role.CUSTOMER],
     enum: Role,
     isArray: true,
   })

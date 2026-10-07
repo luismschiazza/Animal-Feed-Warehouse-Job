@@ -24,7 +24,7 @@ export class UsersService {
       name: createUserDto.name,
       email: createUserDto.email,
       password: hashedPassword,
-      roles: [Role.STUDENT],
+      roles: [Role.CUSTOMER],
     });
 
     const saved = await createdUser.save();

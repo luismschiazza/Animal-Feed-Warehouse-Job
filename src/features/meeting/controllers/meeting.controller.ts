@@ -31,7 +31,7 @@ export class MeetingsController {
   constructor(private readonly meetingsService: MeetingsService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
@@ -53,7 +53,7 @@ export class MeetingsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Get(':id')
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -66,7 +66,7 @@ export class MeetingsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
@@ -80,7 +80,7 @@ export class MeetingsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Delete(':id')
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

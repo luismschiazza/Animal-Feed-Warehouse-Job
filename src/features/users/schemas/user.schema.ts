@@ -22,7 +22,7 @@ export class User extends Document {
   @Prop({ select: false })
   refreshTokenHash: string;
 
-  @Prop({ type: [String], enum: Object.values(Role), default: [Role.STUDENT] })
+  @Prop({ type: [String], enum: Object.values(Role), default: [Role.CUSTOMER] })
   roles: Role[];
 
   @Prop({ default: Date.now })

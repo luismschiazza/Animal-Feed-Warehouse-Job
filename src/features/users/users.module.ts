@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { MailModule } from '../mail/mail.module';
 import { UsersController } from './controllers/users.controller';
 import { ExcludeOwnUserGuard } from './guards/exclude-own-user.guard';
 import { NotOwnUserGuard } from './guards/not-own-user.guard';
@@ -9,7 +8,7 @@ import { UsersService } from './services/users.service';
 import { UniqueEmailValidator } from './validators/unique-email.validator';
 
 @Module({
-  imports: [UserModelModule, MailModule],
+  imports: [UserModelModule],
   providers: [
     UsersService,
     UniqueEmailValidator,

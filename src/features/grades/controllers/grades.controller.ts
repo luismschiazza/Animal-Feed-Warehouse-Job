@@ -31,7 +31,7 @@ export class GradesController {
   constructor(private readonly gradesService: GradesService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseGradeSingleDto })
@@ -67,7 +67,7 @@ export class GradesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseGradeSingleDto })
@@ -81,7 +81,7 @@ export class GradesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.TEACHER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
   @Delete(':id')
   @ApiOkResponse({ type: ResponseGradeSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

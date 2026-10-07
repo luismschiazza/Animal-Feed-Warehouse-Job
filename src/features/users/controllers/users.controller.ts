@@ -47,7 +47,7 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, ExcludeOwnUserGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.SYSTEM_ADMIN)
   @ApiOkResponse({ type: ResponseUserArrayDto, isArray: true })
   @Get()
   async findAll(@Request() req) {
@@ -55,7 +55,7 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, NotOwnUserGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.SYSTEM_ADMIN)
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Get(':id')
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -67,7 +67,7 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, NotOwnUserGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.SYSTEM_ADMIN)
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
@@ -83,7 +83,7 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, NotOwnUserGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.SYSTEM_ADMIN)
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Delete(':id')
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

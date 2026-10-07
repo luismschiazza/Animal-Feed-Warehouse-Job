@@ -30,7 +30,7 @@ export class DisciplinesController {
   constructor(private readonly disciplinesService: DisciplinesService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.COORDINATOR)
+  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
@@ -52,7 +52,7 @@ export class DisciplinesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.COORDINATOR)
+  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
   @Get(':id')
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -66,7 +66,7 @@ export class DisciplinesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.COORDINATOR)
+  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
@@ -84,7 +84,7 @@ export class DisciplinesController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.COORDINATOR)
+  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
   @Delete(':id')
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

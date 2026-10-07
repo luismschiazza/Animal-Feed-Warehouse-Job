@@ -1,15 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import {
-  IsEmail,
-  IsEnum,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
-import { Role } from '@/common/enums/role.enum';
+import { IsEmail, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 import { IsUniqueEmail } from '../../validators/unique-email.validator';
 
 export class CreateUserDto {
@@ -41,14 +32,4 @@ export class CreateUserDto {
   @MinLength(6)
   @MaxLength(128)
   password: string;
-
-  @ApiProperty({
-    description: 'List of roles assigned to the user',
-    example: ['STUDENT'],
-    isArray: true,
-    required: false,
-  })
-  @IsOptional()
-  @IsEnum(Role, { each: true })
-  roles?: Role[];
 }
