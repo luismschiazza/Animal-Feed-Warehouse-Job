@@ -1,0 +1,18 @@
+{{> school-layout
+  subject=subject
+  logoUrl=logoUrl
+  headerBadge="Welcome"
+  body=(concat
+    "<p>Hello <strong>" userName "</strong>,</p>"
+    "<p>Welcome to <strong>{{appName}}</strong>!</p>"
+    "<p>Your student account has been successfully created and is now active.</p>"
+    "<p>"
+      "You can log in using your email and password."
+      "{{#if temporaryPassword}}<br />"
+        "Temporary password: <strong>" temporaryPassword "</strong>"
+      "{{/if}}"
+    "</p>"
+    "<p>If you have any questions, feel free to contact the school administration.</p>"
+    "<p>We wish you a great journey ahead!</p>"
+  )
+}}

@@ -1,0 +1,17 @@
+{{> school-layout
+  subject=subject
+  logoUrl=logoUrl
+  headerBadge="New Staff"
+  body=(concat
+    "<p>Hello Professor <strong>" userName "</strong>,</p>"
+    "<p>Welcome to the <strong>{{appName}}</strong> team!</p>"
+    "<p>Your teaching account has been successfully created and activated.</p>"
+    "<p>"
+      "Use your credentials to log in and access the teacher dashboard."
+      "{{#if temporaryPassword}}<br />"
+        "Temporary password: <strong>" temporaryPassword "</strong>"
+      "{{/if}}"
+    "</p>"
+    "<p>We are excited to have you with us!</p>"
+  )
+}}

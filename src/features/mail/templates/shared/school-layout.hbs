@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{subject}}</title>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="{{logoUrl}}" alt="{{appName}}" class="logo" />
+      <h1 class="title">{{subject}}</h1>
+
+      {{#if headerBadge}}
+        <div class="badge">{{headerBadge}}</div>
+      {{/if}}
+    </div>
+
+    <div class="content">
+      {{{body}}}
+    </div>
+
+    <div class="footer">
+      © {{year}} {{appName}} — All rights reserved.<br />
+      This email was automatically generated. Please do not reply to this message.
+    </div>
+  </div>
+</body>
+</html>

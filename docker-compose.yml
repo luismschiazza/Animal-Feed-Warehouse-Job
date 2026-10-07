@@ -1,0 +1,30 @@
+version: '3'
+services:
+  mongo-db:
+    image: mongo:latest
+    container_name: mongo-db
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+
+  nest-app:
+    build: .
+    container_name: nest-app
+    ports:
+      - '3000:3000'
+    depends_on:
+      mongo-db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      MONGO_URL: mongodb://mongo-db:27017/agora
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:5173}
+      CORS_CREDENTIALS: ${CORS_CREDENTIALS:-true}
+    command: npm run start:dev
+
+volumes:
+  mongo-data:

@@ -1,0 +1,16 @@
+{{> school-layout
+  subject=subject
+  logoUrl=logoUrl
+  headerBadge="Grade Released"
+  body=(concat
+    "<p>Hello <strong>" userName "</strong>,</p>"
+    "<p>A new grade has been added to your academic record.</p>"
+    "<p><strong>Subject:</strong> " disciplineName "</p>"
+    "<p><strong>Grade:</strong> " gradeValue " (" gradeType ")</p>"
+    "<p><strong>Term:</strong> " gradeTerm "</p>"
+    "{{#if comments}}"
+      "<p><strong>Comments:</strong> " comments "</p>"
+    "{{/if}}"
+    "<p>Keep up the good work!</p>"
+  )
+}}
