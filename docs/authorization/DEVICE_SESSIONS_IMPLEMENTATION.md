@@ -4,9 +4,9 @@ Issue: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/2
 
 ## Estado da entrega
 
-**Implementada e validada localmente, em revisão.** Login, refresh, JWT e logout já utilizam o novo serviço. Não é uma declaração de implantação em produção.
+**Implementada e validada com MongoDB real.** Login, refresh, JWT e logout utilizam o novo serviço. Entrega por PR a partir de `feat/issue-2-device-sessions`; não é uma declaração de implantação em produção.
 
-Branch: `feat/issue-2-device-sessions`, baseada na entrega da #1. Commit e push desta branch autorizados pelo responsável; integração à main e PR continuam pendentes. A main contém apenas README/licença e não possui ancestral comum com a implementação; revisar a estratégia de integração antes de abrir o PR. A issue permanece aberta até a entrega integrada e aceita.
+O histórico original da main (README/licença) foi unido à branch de implementação com merge de históricos distintos, preservando os commits e LICENSE, sem force-push. O conflito de README foi resolvido mantendo a documentação completa da aplicação e referenciando a licença original. O aceite e encerramento devem ocorrer somente após integração do PR.
 
 ## O que foi feito, como e por quê
 
@@ -113,7 +113,7 @@ Esse comando cria e remove somente seu container de teste dedicado. Sem SESSIONS
 
 ## Limitações e continuidade
 
-- Sem integração à main ou publicação: pendência de entrega, não esconder como concluída.
+- Integração é rastreada pelo PR e encerramento da issue. Não confundir merge com implantação em produção.
 - PBAC, negar por padrão em todas as rotas e isolamento por organização são issues #3/#4.
 - Listar/revogar sessões por interface ou administração é issue #5.
 - Auditoria persistente completa e testes adicionais de segurança são issue #6. Tokens não devem ser registrados nos logs.

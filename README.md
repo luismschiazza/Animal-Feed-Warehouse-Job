@@ -31,7 +31,7 @@ A API usa JWT com access token e refresh token. Cada login cria uma sessão inde
 
 Sessões têm duração absoluta de sete dias e limite de 1.000 rotações. O cliente deve coordenar um refresh por vez: chamadas concorrentes com o mesmo token podem revogar a sessão pela política estrita de replay. Após implantar esta mudança, tokens legados sem `sid` exigem novo login; não há fallback para o modelo antigo.
 
-A implementação foi validada localmente; integração à `main` está pendente. Detalhes e reprodução dos testes: [`docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md`](docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
+A implementação foi validada com MongoDB real e testes HTTP. Detalhes e reprodução dos testes: [`docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md`](docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
 
 A autorização está sendo evoluída de RBAC para ABAC/PBAC.
 
@@ -160,7 +160,7 @@ npm run cli -- seed
 O Kanban e as issues da modernização estão no repositório. A ordem de implementação é:
 
 1. papéis empresariais e matriz de permissões — concluído;
-2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado localmente, em revisão;
+2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado;
 3. motor de políticas PBAC;
 4. ABAC e isolamento por organização/recurso;
 5. auditoria e testes de segurança;
@@ -210,4 +210,4 @@ docs/
 
 ## Licença
 
-Projeto privado. Todos os direitos reservados.
+Consulte o arquivo [`LICENSE`](LICENSE), preservado do histórico original do repositório.
