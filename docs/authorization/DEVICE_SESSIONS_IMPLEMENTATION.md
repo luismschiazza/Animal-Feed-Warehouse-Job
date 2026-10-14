@@ -4,9 +4,9 @@ Issue: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/2
 
 ## Estado da entrega
 
-**Implementada e validada com MongoDB real.** Login, refresh, JWT e logout utilizam o novo serviço. Entrega por PR a partir de `feat/issue-2-device-sessions`; não é uma declaração de implantação em produção.
+**Concluída e integrada à main pelo [PR #7](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/7), commit cd31d07.** Issue #2 encerrada após aceite. Login, refresh, JWT e logout utilizam o novo serviço; não é uma declaração de implantação em produção.
 
-O histórico original da main (README/licença) foi unido à branch de implementação com merge de históricos distintos, preservando os commits e LICENSE, sem force-push. O conflito de README foi resolvido mantendo a documentação completa da aplicação e referenciando a licença original. O aceite e encerramento devem ocorrer somente após integração do PR.
+O histórico original da main (README/licença) foi unido à branch de implementação com merge de históricos distintos, preservando os commits e LICENSE, sem force-push. O conflito de README foi resolvido mantendo a documentação completa da aplicação e referenciando a licença original. Aceite confirmado após integração, com repetição dos testes MongoDB/HTTP e E2E sobre a base integrada.
 
 ## O que foi feito, como e por quê
 

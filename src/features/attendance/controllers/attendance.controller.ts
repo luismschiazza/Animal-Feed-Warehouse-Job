@@ -8,17 +8,14 @@ import {
   Patch,
   Post,
   Request,
-  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
 import { ApiOkResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { Role } from '@/common/enums/role.enum';
-import { RolesGuard } from '@/common/guards/roles.guard';
+import { RequirePolicies } from '@/common/authorization/policy.decorators';
+import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
-import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { AttendanceDto } from '../dtos/response/attendance.dto';
 import { ResponseAttendanceArrayDto } from '../dtos/response/response-attendance-array.dto';
 import { ResponseAttendanceSingleDto } from '../dtos/response/response-attendance-single.dto';
@@ -30,8 +27,7 @@ import { AttendancesService } from '../services/attendance.service';
 export class AttendancesController {
   constructor(private readonly attendancesService: AttendancesService) {}
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.CREATE, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
@@ -42,7 +38,7 @@ export class AttendancesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Get()
   @ApiOkResponse({ type: ResponseAttendanceArrayDto, isArray: true })
   async findAll() {
@@ -52,8 +48,7 @@ export class AttendancesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Get(':id')
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -65,8 +60,7 @@ export class AttendancesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.UPDATE, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
@@ -79,8 +73,7 @@ export class AttendancesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {
