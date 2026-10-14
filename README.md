@@ -162,7 +162,7 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 1. papéis empresariais e matriz de permissões — concluído;
 2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado;
 3. motor de políticas PBAC — implementado e validado;
-4. ABAC e isolamento por organização/recurso;
+4. ABAC e isolamento por organização/recurso — em andamento: base de organizações/vínculos, ainda sem isolamento completo da API;
 5. auditoria e testes de segurança;
 6. produtos, categorias, marcas e unidades;
 7. locais, saldo e movimentações de estoque;

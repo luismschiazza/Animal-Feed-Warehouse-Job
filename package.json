@@ -24,7 +24,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:sessions": "jest --config ./test/jest-sessions-integration.json --runInBand"
+    "test:sessions": "jest --config ./test/jest-sessions-integration.json --runInBand",
+    "test:abac": "jest --config ./test/jest-abac-integration.json --runInBand"
   },
   "dependencies": {
     "@faker-js/faker": "^10.1.0",
