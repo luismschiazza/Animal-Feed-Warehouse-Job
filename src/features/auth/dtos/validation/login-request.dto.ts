@@ -1,6 +1,14 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsMongoId,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 export class LoginRequestDto {
   @ApiProperty({
@@ -21,4 +29,12 @@ export class LoginRequestDto {
   @MinLength(6)
   @MaxLength(128)
   password: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Organization to bind to this session; requires an active membership. Omit for personal access only.',
+  })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsMongoId()
+  organizationId?: string;
 }

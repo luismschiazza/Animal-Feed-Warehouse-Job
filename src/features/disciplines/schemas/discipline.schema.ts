@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
+import { addTenantFields } from '@/common/authorization/tenant-schema';
 
 @Schema()
 export class Discipline extends Document {
@@ -14,6 +15,7 @@ export class Discipline extends Document {
 }
 
 export const DisciplineSchema = SchemaFactory.createForClass(Discipline);
+addTenantFields(DisciplineSchema);
 
 DisciplineSchema.set('toObject', { virtuals: true });
 DisciplineSchema.set('toJSON', {

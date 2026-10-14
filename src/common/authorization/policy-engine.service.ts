@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AccountStatus } from '../enums/account-status.enum';
 import { Role } from '../enums/role.enum';
 import { POLICY_DEFINITIONS } from './policy.registry';
 import { PolicyContext, PolicyDecision, PolicyRequirement } from './policy.types';
@@ -10,6 +11,7 @@ export class PolicyEngine {
     if (
       !subject?.id ||
       !subject.sessionId ||
+      subject.status !== AccountStatus.ACTIVE ||
       !Array.isArray(subject.roles) ||
       subject.roles.length === 0 ||
       subject.roles.some((role) => !Object.values(Role).includes(role))

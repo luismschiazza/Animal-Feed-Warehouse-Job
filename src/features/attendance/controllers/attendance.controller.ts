@@ -32,7 +32,7 @@ export class AttendancesController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
   async create(@Request() req, @Body() dto: CreateAttendanceDto) {
-    const attendance = await this.attendancesService.create(dto, req.user.id);
+    const attendance = await this.attendancesService.create(dto, req.user);
     return plainToInstance(AttendanceDto, attendance, {
       excludeExtraneousValues: true,
     });
@@ -41,8 +41,8 @@ export class AttendancesController {
   @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Get()
   @ApiOkResponse({ type: ResponseAttendanceArrayDto, isArray: true })
-  async findAll() {
-    const list = await this.attendancesService.findAll();
+  async findAll(@Request() req) {
+    const list = await this.attendancesService.findAll(req.user);
     return plainToInstance(AttendanceDto, list, {
       excludeExtraneousValues: true,
     });
@@ -51,8 +51,8 @@ export class AttendancesController {
   @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Get(':id')
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
-  async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
-    const attendance = await this.attendancesService.findOneById(id);
+  async findOne(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const attendance = await this.attendancesService.findOneById(id, req.user);
     if (!attendance) throw new NotFoundException(`Attendance ${id} not found`);
 
     return plainToInstance(AttendanceDto, attendance, {
@@ -64,8 +64,12 @@ export class AttendancesController {
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
-  async update(@Param('id', ValidateObjectIdPipe) id: string, @Body() dto: UpdateAttendanceDto) {
-    const updated = await this.attendancesService.update(id, dto);
+  async update(
+    @Request() req,
+    @Param('id', ValidateObjectIdPipe) id: string,
+    @Body() dto: UpdateAttendanceDto,
+  ) {
+    const updated = await this.attendancesService.update(id, dto, req.user);
     if (!updated) throw new NotFoundException(`Attendance ${id} not found`);
 
     return plainToInstance(AttendanceDto, updated, {
@@ -76,8 +80,8 @@ export class AttendancesController {
   @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_ATTENDANCE })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseAttendanceSingleDto })
-  async delete(@Param('id', ValidateObjectIdPipe) id: string) {
-    const deleted = await this.attendancesService.delete(id);
+  async delete(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const deleted = await this.attendancesService.delete(id, req.user);
     if (!deleted) throw new NotFoundException(`Attendance ${id} not found`);
 
     return plainToInstance(AttendanceDto, deleted, {

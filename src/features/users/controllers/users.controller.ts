@@ -57,8 +57,8 @@ export class UsersController {
   @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.USER })
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Get(':id')
-  async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
-    const user = await this.usersService.findOneById(id);
+  async findOne(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const user = await this.usersService.findScopedAccount(id, req.user);
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }

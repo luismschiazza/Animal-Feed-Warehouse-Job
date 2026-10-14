@@ -33,7 +33,17 @@ Sessões têm duração absoluta de sete dias e limite de 1.000 rotações. O cl
 
 A implementação foi validada com MongoDB real e testes HTTP. Detalhes e reprodução dos testes: [`docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md`](docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
 
-A infraestrutura PBAC usa um guard global: somente rotas explicitamente públicas dispensam JWT; toda outra rota exige sessão ativa e política registrada. Ausência de política é negada, inclusive para administrador. Consulte [PBAC — implementação e estudo](docs/authorization/PBAC_IMPLEMENTATION_STUDY.md). Isolamento ABAC por organização ainda será implementado na #4.
+A infraestrutura PBAC usa um guard global: somente rotas explicitamente públicas dispensam JWT; toda outra rota exige sessão ativa e política registrada. Ausência de política é negada, inclusive para administrador. Consulte [PBAC — implementação e estudo](docs/authorization/PBAC_IMPLEMENTATION_STUDY.md). O isolamento ABAC por organização está implementado para os recursos atuais na #4.
+
+### ABAC por organização — PR #9
+
+Nesta branch, login aceita `organizationId` opcional e exige vínculo ativo. Sem organização, a sessão é pessoal (`organization_id: null`), sem privilégios empresariais derivados dos papéis globais antigos. Conta, organização e vínculo são revalidados no servidor.
+
+Guard e serviços carregam atributos confiáveis e aplicam filtros por organização em listas, leitura, alteração e exclusão. Referências e notificações são validadas no mesmo escopo; proprietário não contorna papel ou estado. Administradores empresariais não podem alterar/excluir contas globais compartilhadas.
+
+**Instalação nova:** a loja começa com banco vazio. O primeiro acesso será criado conscientemente pelo operador com `npm run bootstrap:organization`, com a API parada e as variáveis `BOOTSTRAP_*` configuradas. O comando recusa banco não vazio/já inicializado e não concede privilégios globais ou a outras empresas. Não executar seeders escolares. Nenhum provisionamento real foi feito nesta execução. Instruções e limites: [ABAC — implementação e estudo](docs/authorization/ABAC_IMPLEMENTATION_STUDY.md).
+
+Esta entrega de segurança não conclui os CRUDs comerciais nem a preparação de produção: seguem #5, #6 e o planejamento dos reforços.
 
 ### Papéis atuais
 
@@ -50,7 +60,7 @@ A infraestrutura PBAC usa um guard global: somente rotas explicitamente pública
 | `AUDITOR` | Consulta de auditoria e relatórios autorizados. |
 | `CUSTOMER` | Cliente: acesso futuro aos próprios dados e pedidos. |
 
-Papéis não devem ser a única decisão de acesso. Nas próximas etapas, as políticas avaliarão atributos do usuário, do recurso e do contexto — por exemplo: organização, proprietário do registro, local de estoque, vínculo e estado da conta.
+Papéis não são a única decisão: as políticas atuais consideram organização, vínculo, proprietário, estado e sessão. Atributos específicos dos futuros CRUDs comerciais, como local de estoque, serão definidos com cada recurso.
 
 A matriz inicial está em [`docs/authorization/ROLE_AND_PERMISSION_MATRIX.md`](docs/authorization/ROLE_AND_PERMISSION_MATRIX.md).
 
@@ -162,7 +172,7 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 1. papéis empresariais e matriz de permissões — concluído;
 2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado;
 3. motor de políticas PBAC — implementado e validado;
-4. ABAC e isolamento por organização/recurso;
+4. ABAC e isolamento por organização/recurso — implementado e validado nos recursos atuais, com provisionamento inicial controlado;
 5. auditoria e testes de segurança;
 6. produtos, categorias, marcas e unidades;
 7. locais, saldo e movimentações de estoque;

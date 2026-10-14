@@ -1,4 +1,5 @@
 import { Document } from 'mongoose';
+import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 
 export interface User extends Document {
@@ -9,6 +10,7 @@ export interface User extends Document {
   readonly rememberToken?: string;
   readonly refreshTokenHash?: string;
   readonly roles: Role[];
+  readonly status: AccountStatus;
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }

@@ -19,7 +19,11 @@ describe('AuthController', () => {
       { email: 'luis@example.com', password: 'password' },
       { user, ip: '127.0.0.1', headers: { 'user-agent': 'Test device' } },
     );
-    expect(auth.login).toHaveBeenCalledWith(user, { ip: '127.0.0.1', userAgent: 'Test device' });
+    expect(auth.login).toHaveBeenCalledWith(
+      user,
+      { ip: '127.0.0.1', userAgent: 'Test device' },
+      undefined,
+    );
   });
   it('forwards refresh and logs out the authenticated session', async () => {
     await controller.refresh({ refreshToken: 'token' });

@@ -1,42 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { PolicyResource, PolicySubject } from '@/common/authorization/policy.types';
+import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
 import { CreateAttendanceDto } from '../dtos/validation/create-attendance.dto';
 import { UpdateAttendanceDto } from '../dtos/validation/update-attendance.dto';
-import { Attendance } from '../interfaces/attendance.interface';
 
 @Injectable()
 export class AttendancesService {
   constructor(
-    @InjectModel('Attendance')
-    private readonly attendanceModel: Model<Attendance>,
-    private eventEmitter: EventEmitter2,
+    private readonly resources: ScopedResourcesService,
+    private readonly events: EventEmitter2,
   ) {}
-
-  async create(dto: CreateAttendanceDto, recordedBy: string): Promise<Attendance> {
-    const created = new this.attendanceModel({
-      ...dto,
-      recordedBy,
-    });
-    const saved = await created.save();
-    this.eventEmitter.emit('attendance.created', saved);
+  async create(dto: CreateAttendanceDto, actor: PolicySubject) {
+    const saved = await this.resources.create(PolicyResource.LEGACY_ATTENDANCE, dto, actor);
+    this.events.emit('attendance.created', { record: saved, subject: actor });
     return saved;
   }
-
-  async findAll(): Promise<Attendance[]> {
-    return this.attendanceModel.find().exec();
+  findAll(actor: PolicySubject) {
+    return this.resources.list(PolicyResource.LEGACY_ATTENDANCE, actor);
   }
-
-  async findOneById(id: string): Promise<Attendance | null> {
-    return this.attendanceModel.findById(id).exec();
+  findOneById(id: string, actor: PolicySubject) {
+    return this.resources.get(PolicyResource.LEGACY_ATTENDANCE, id, actor);
   }
-
-  async update(id: string, dto: UpdateAttendanceDto): Promise<Attendance | null> {
-    return this.attendanceModel.findByIdAndUpdate(id, dto, { new: true }).exec();
+  update(id: string, dto: UpdateAttendanceDto, actor: PolicySubject) {
+    return this.resources.update(PolicyResource.LEGACY_ATTENDANCE, id, dto, actor);
   }
-
-  async delete(id: string): Promise<Attendance | null> {
-    return this.attendanceModel.findByIdAndDelete(id).exec();
+  delete(id: string, actor: PolicySubject) {
+    return this.resources.delete(PolicyResource.LEGACY_ATTENDANCE, id, actor);
   }
 }

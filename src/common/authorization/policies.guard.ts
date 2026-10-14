@@ -5,12 +5,14 @@ import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { PolicyEngine } from './policy-engine.service';
 import { POLICIES_KEY, PUBLIC_ROUTE_KEY } from './policy.decorators';
 import { PolicyContext, PolicyRequirement, PolicyResource } from './policy.types';
+import { ScopedResourcesService } from './scoped-resources.service';
 
 @Injectable()
 export class PoliciesGuard extends JwtAuthGuard {
   constructor(
     private readonly reflector: Reflector,
     private readonly engine: PolicyEngine,
+    private readonly resources: ScopedResourcesService,
   ) {
     super();
   }
@@ -41,6 +43,8 @@ export class PoliciesGuard extends JwtAuthGuard {
         requirement.resource === PolicyResource.SESSION;
       const policyContext: PolicyContext = {
         subject: request.user,
+        // Owned profile/logout use the authenticated identity. Other attributes are
+        // resolved below from scoped DB records or validated collection scope.
         resource: {
           type: requirement.resource,
           id: ownResource
@@ -52,6 +56,16 @@ export class PoliciesGuard extends JwtAuthGuard {
         },
         environment: { method: request.method, ip: request.ip },
       };
+      if (!ownResource) {
+        const authorization = await this.resources.authorize(
+          requirement.resource,
+          requirement.action,
+          request.user,
+          request.params?.id,
+        );
+        policyContext.resource = authorization.attributes;
+        policyContext.subject = authorization.actor;
+      }
       if (!this.engine.evaluate(requirement, policyContext).allowed) {
         throw new ForbiddenException('Insufficient permissions');
       }

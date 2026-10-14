@@ -1,47 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { PolicyResource, PolicySubject } from '@/common/authorization/policy.types';
+import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
 import { CreateDisciplineDto } from '../dtos/validation/create-discipline.dto';
 import { UpdateDisciplineDto } from '../dtos/validation/update-discipline.dto';
-import { Discipline } from '../interfaces/discipline.interface';
 
 @Injectable()
 export class DisciplinesService {
-  constructor(
-    @InjectModel('Discipline')
-    private readonly disciplineModel: Model<Discipline>,
-  ) {}
-
-  async create(createDisciplineDto: CreateDisciplineDto): Promise<Discipline> {
-    const created = new this.disciplineModel({
-      ...createDisciplineDto,
-    });
-    return created.save();
+  constructor(private readonly resources: ScopedResourcesService) {}
+  create(dto: CreateDisciplineDto, actor: PolicySubject) {
+    return this.resources.create(PolicyResource.LEGACY_DISCIPLINE, dto, actor);
   }
-
-  async findAll(): Promise<Discipline[]> {
-    return this.disciplineModel.find().exec();
+  findAll(actor: PolicySubject) {
+    return this.resources.list(PolicyResource.LEGACY_DISCIPLINE, actor);
   }
-
-  async findOneById(id: string): Promise<Discipline | null> {
-    return this.disciplineModel.findById(id).exec();
+  findOneById(id: string, actor: PolicySubject) {
+    return this.resources.get(PolicyResource.LEGACY_DISCIPLINE, id, actor);
   }
-
-  async update(id: string, updateDisciplineDto: UpdateDisciplineDto): Promise<Discipline | null> {
-    const existing = await this.findOneById(id);
-    if (!existing) {
-      return null;
-    }
-
-    return this.disciplineModel.findByIdAndUpdate(id, updateDisciplineDto, { new: true }).exec();
+  update(id: string, dto: UpdateDisciplineDto, actor: PolicySubject) {
+    return this.resources.update(PolicyResource.LEGACY_DISCIPLINE, id, dto, actor);
   }
-
-  async delete(id: string): Promise<Discipline | null> {
-    const existing = await this.findOneById(id);
-    if (!existing) {
-      return null;
-    }
-
-    return this.disciplineModel.findByIdAndDelete(id).exec();
+  delete(id: string, actor: PolicySubject) {
+    return this.resources.delete(PolicyResource.LEGACY_DISCIPLINE, id, actor);
   }
 }

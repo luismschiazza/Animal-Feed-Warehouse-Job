@@ -1,44 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { PolicyResource, PolicySubject } from '@/common/authorization/policy.types';
+import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
 import { CreateGradeDto } from '../dtos/validation/create-grade.dto';
 import { UpdateGradeDto } from '../dtos/validation/update-grade.dto';
-import { Grade } from '../interfaces/grade.interface';
 
 @Injectable()
 export class GradesService {
   constructor(
-    @InjectModel('Grade')
-    private readonly gradeModel: Model<Grade>,
-    private readonly eventEmitter: EventEmitter2,
+    private readonly resources: ScopedResourcesService,
+    private readonly events: EventEmitter2,
   ) {}
-
-  async create(dto: CreateGradeDto, recordedBy: string) {
-    const grade = new this.gradeModel({
-      ...dto,
-      recordedBy,
-    });
-    const saved = await grade.save();
-
-    this.eventEmitter.emit('grade.created', saved);
-
+  async create(dto: CreateGradeDto, actor: PolicySubject) {
+    const saved = await this.resources.create(PolicyResource.LEGACY_GRADE, dto, actor);
+    this.events.emit('grade.created', { record: saved, subject: actor });
     return saved;
   }
-
-  async findAll() {
-    return this.gradeModel.find().exec();
+  findAll(actor: PolicySubject) {
+    return this.resources.list(PolicyResource.LEGACY_GRADE, actor);
   }
-
-  async findOne(id: string) {
-    return this.gradeModel.findById(id).exec();
+  findOne(id: string, actor: PolicySubject) {
+    return this.resources.get(PolicyResource.LEGACY_GRADE, id, actor);
   }
-
-  async update(id: string, dto: UpdateGradeDto) {
-    return this.gradeModel.findByIdAndUpdate(id, dto, { new: true }).exec();
+  update(id: string, dto: UpdateGradeDto, actor: PolicySubject) {
+    return this.resources.update(PolicyResource.LEGACY_GRADE, id, dto, actor);
   }
-
-  async delete(id: string) {
-    return this.gradeModel.findByIdAndDelete(id).exec();
+  delete(id: string, actor: PolicySubject) {
+    return this.resources.delete(PolicyResource.LEGACY_GRADE, id, actor);
   }
 }

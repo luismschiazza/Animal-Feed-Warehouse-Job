@@ -32,7 +32,7 @@ export class GradesController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseGradeSingleDto })
   async create(@Request() req, @Body() dto: CreateGradeDto) {
-    const grade = await this.gradesService.create(dto, req.user.id);
+    const grade = await this.gradesService.create(dto, req.user);
 
     return plainToInstance(GradeDto, grade, {
       excludeExtraneousValues: true,
@@ -42,8 +42,8 @@ export class GradesController {
   @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_GRADE })
   @Get()
   @ApiOkResponse({ type: ResponseGradeArrayDto })
-  async findAll() {
-    const list = await this.gradesService.findAll();
+  async findAll(@Request() req) {
+    const list = await this.gradesService.findAll(req.user);
 
     return plainToInstance(GradeDto, list, {
       excludeExtraneousValues: true,
@@ -53,8 +53,8 @@ export class GradesController {
   @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_GRADE })
   @Get(':id')
   @ApiOkResponse({ type: ResponseGradeSingleDto })
-  async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
-    const grade = await this.gradesService.findOne(id);
+  async findOne(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const grade = await this.gradesService.findOne(id, req.user);
     if (!grade) throw new NotFoundException(`Grade ${id} not found`);
 
     return plainToInstance(GradeDto, grade, {
@@ -66,8 +66,12 @@ export class GradesController {
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseGradeSingleDto })
-  async update(@Param('id', ValidateObjectIdPipe) id: string, @Body() dto: UpdateGradeDto) {
-    const updated = await this.gradesService.update(id, dto);
+  async update(
+    @Request() req,
+    @Param('id', ValidateObjectIdPipe) id: string,
+    @Body() dto: UpdateGradeDto,
+  ) {
+    const updated = await this.gradesService.update(id, dto, req.user);
     if (!updated) throw new NotFoundException(`Grade ${id} not found`);
 
     return plainToInstance(GradeDto, updated, {
@@ -78,8 +82,8 @@ export class GradesController {
   @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_GRADE })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseGradeSingleDto })
-  async delete(@Param('id', ValidateObjectIdPipe) id: string) {
-    const deleted = await this.gradesService.delete(id);
+  async delete(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const deleted = await this.gradesService.delete(id, req.user);
     if (!deleted) throw new NotFoundException(`Grade ${id} not found`);
 
     return plainToInstance(GradeDto, deleted, {

@@ -1,6 +1,10 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
+import { AccountStatus } from '@/common/enums/account-status.enum';
+import { Role } from '@/common/enums/role.enum';
+import { CreateUserDto } from '../dtos/validation/create-user.dto';
 import { UsersService } from './users.service';
 
 describe('UsersService', () => {
@@ -22,6 +26,7 @@ describe('UsersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
+        { provide: ScopedResourcesService, useValue: {} },
         {
           provide: getModelToken('User'),
           useValue: mockUserModel,
@@ -50,13 +55,18 @@ describe('UsersService', () => {
       name: 'Customer',
       email: 'customer@example.com',
       password: 'a-safe-password',
-    });
+      organizationId: 'forged-organization',
+      roles: [Role.SYSTEM_ADMIN],
+      status: AccountStatus.SUSPENDED,
+    } as unknown as CreateUserDto);
 
     expect(mockUserModel).toHaveBeenCalledWith(
       expect.objectContaining({
         roles: ['CUSTOMER'],
+        status: AccountStatus.ACTIVE,
       }),
     );
+    expect(mockUserModel.mock.calls[0][0]).not.toHaveProperty('organizationId');
     expect(user).toEqual(expect.objectContaining(savedUser));
     expect(mockEventEmitter.emit).toHaveBeenCalledWith(
       'user.created',

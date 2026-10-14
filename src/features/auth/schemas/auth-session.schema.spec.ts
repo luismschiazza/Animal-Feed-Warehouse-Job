@@ -64,6 +64,12 @@ describe('AuthSession schema (without database)', () => {
     expect(JSON.stringify(session)).not.toContain('b'.repeat(64));
   });
 
+  it('uses explicit BSON reference types and defaults to personal scope', () => {
+    expect(AuthSessionSchema.path('userId').instance).toBe('ObjectId');
+    expect(AuthSessionSchema.path('organizationId').instance).toBe('ObjectId');
+    expect(createSession().organizationId).toBeNull();
+  });
+
   it('declares uniqueness, owner lookup and asynchronous TTL cleanup indexes', () => {
     const indexes = AuthSessionSchema.indexes();
 

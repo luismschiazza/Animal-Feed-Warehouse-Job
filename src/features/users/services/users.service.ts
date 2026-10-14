@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcryptjs';
 import { Model } from 'mongoose';
+import { PolicyResource, PolicySubject } from '@/common/authorization/policy.types';
+import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
+import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 import { CreateUserDto } from '../dtos/validation/create-user.dto';
 import { UpdateUserDto } from '../dtos/validation/update-user.dto';
@@ -16,6 +19,7 @@ export class UsersService {
     @InjectModel('User')
     private userModel: Model<User>,
     private eventEmitter: EventEmitter2,
+    private readonly resources: ScopedResourcesService,
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -25,6 +29,8 @@ export class UsersService {
       email: createUserDto.email,
       password: hashedPassword,
       roles: [Role.CUSTOMER],
+      // Public registration permits a personal account, never organization membership.
+      status: AccountStatus.ACTIVE,
     });
 
     const saved = await createdUser.save();
@@ -34,9 +40,16 @@ export class UsersService {
     return saved;
   }
 
-  async findAll(): Promise<User[]> {
-    return this.userModel.find().exec();
+  async findAll(actor: PolicySubject) {
+    return this.resources.list(PolicyResource.USER, actor);
   }
+
+  async findScopedAccount(id: string, actor: PolicySubject) {
+    return this.resources.get(PolicyResource.USER, id, actor);
+  }
+
+  // Global identity readers below are exclusively for authentication/registration.
+  // Operational controllers must use the scoped methods above.
 
   async findOneByEmail(email: string): Promise<User> {
     return this.userModel.findOne({ email: email.trim().toLowerCase() }).exec();
@@ -53,23 +66,14 @@ export class UsersService {
     return this.userModel.findById(id).select('+roles').exec();
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<User | null> {
-    const existingUser = await this.findOneById(id);
-    if (!existingUser) {
-      return null;
-    }
-    const updatePayload = { ...updateUserDto };
-    if (updatePayload.password) {
-      updatePayload.password = await bcrypt.hash(updatePayload.password, PASSWORD_SALT_ROUNDS);
-    }
-    return this.userModel.findByIdAndUpdate(id, updatePayload, { new: true }).exec();
+  async update(_id: string, _updateUserDto: UpdateUserDto): Promise<User | null> {
+    void _id;
+    void _updateUserDto;
+    throw new ForbiddenException('Tenant administrators cannot change global accounts');
   }
 
-  async delete(id: string): Promise<User | null> {
-    const existingUser = await this.findOneById(id);
-    if (!existingUser) {
-      return null;
-    }
-    return this.userModel.findByIdAndDelete(id).exec();
+  async delete(_id: string): Promise<User | null> {
+    void _id;
+    throw new ForbiddenException('Tenant administrators cannot delete global accounts');
   }
 }

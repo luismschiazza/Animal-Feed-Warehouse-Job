@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 
 export class AttendanceDto {
   @ApiProperty({
@@ -14,6 +14,7 @@ export class AttendanceDto {
     example: '692699041eced8902369e37a',
   })
   @Expose()
+  @Transform(({ obj, key }) => obj[key]?.toString())
   readonly student: string;
 
   @ApiProperty({
@@ -21,6 +22,7 @@ export class AttendanceDto {
     example: '69269b34abc894b7fafb9255',
   })
   @Expose()
+  @Transform(({ obj, key }) => obj[key]?.toString())
   readonly discipline: string;
 
   @ApiProperty({
@@ -42,5 +44,6 @@ export class AttendanceDto {
     example: '6923c22bfa8260daba3b3f11',
   })
   @Expose()
+  @Transform(({ obj, key }) => obj[key]?.toString())
   readonly recordedBy: string;
 }

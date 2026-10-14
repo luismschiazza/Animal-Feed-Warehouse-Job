@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Request,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
@@ -30,8 +31,8 @@ export class DisciplinesController {
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
-  async create(@Body() createDisciplineDto: CreateDisciplineDto) {
-    const discipline = await this.disciplinesService.create(createDisciplineDto);
+  async create(@Request() req, @Body() createDisciplineDto: CreateDisciplineDto) {
+    const discipline = await this.disciplinesService.create(createDisciplineDto, req.user);
     return plainToInstance(DisciplineDto, discipline, {
       excludeExtraneousValues: true,
     });
@@ -40,8 +41,8 @@ export class DisciplinesController {
   @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Get()
   @ApiOkResponse({ type: ResponseDisciplineArrayDto, isArray: true })
-  async findAll() {
-    const disciplines = await this.disciplinesService.findAll();
+  async findAll(@Request() req) {
+    const disciplines = await this.disciplinesService.findAll(req.user);
     return plainToInstance(DisciplineDto, disciplines, {
       excludeExtraneousValues: true,
     });
@@ -50,8 +51,8 @@ export class DisciplinesController {
   @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Get(':id')
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
-  async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
-    const discipline = await this.disciplinesService.findOneById(id);
+  async findOne(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const discipline = await this.disciplinesService.findOneById(id, req.user);
     if (!discipline) {
       throw new NotFoundException(`Discipline with ID ${id} not found`);
     }
@@ -65,10 +66,11 @@ export class DisciplinesController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
   async update(
+    @Request() req,
     @Param('id', ValidateObjectIdPipe) id: string,
     @Body() updateDisciplineDto: UpdateDisciplineDto,
   ) {
-    const discipline = await this.disciplinesService.update(id, updateDisciplineDto);
+    const discipline = await this.disciplinesService.update(id, updateDisciplineDto, req.user);
     if (!discipline) {
       throw new NotFoundException(`Discipline with ID ${id} not found`);
     }
@@ -80,8 +82,8 @@ export class DisciplinesController {
   @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
-  async delete(@Param('id', ValidateObjectIdPipe) id: string) {
-    const deleted = await this.disciplinesService.delete(id);
+  async delete(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const deleted = await this.disciplinesService.delete(id, req.user);
     if (!deleted) {
       throw new NotFoundException(`Discipline with ID ${id} not found`);
     }

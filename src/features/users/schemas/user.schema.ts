@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
+import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 
 @Schema()
@@ -26,6 +27,15 @@ export class User extends Document {
 
   @Prop({ type: [String], enum: Object.values(Role), default: [Role.CUSTOMER] })
   roles: Role[];
+
+  // Legacy records without status must not silently become active on hydration.
+  @Prop({
+    type: String,
+    enum: Object.values(AccountStatus),
+    required: true,
+    default: AccountStatus.PENDING,
+  })
+  status: AccountStatus;
 
   @Prop({ default: Date.now })
   createdAt: Date;

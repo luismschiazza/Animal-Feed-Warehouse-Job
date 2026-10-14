@@ -45,6 +45,14 @@ describe('AuthSessionsService (mocked database)', () => {
     expect(first).not.toHaveProperty('tokenHash');
   });
 
+  it('persists the server-validated organization and rejects malformed identifiers', async () => {
+    const organizationId = new Types.ObjectId().toString();
+    await service.create(userId, {}, organizationId);
+    expect(db.create.mock.calls[0][0].organizationId.toString()).toBe(organizationId);
+    await expect(service.create(userId, {}, 'invalid')).rejects.toThrow(UnauthorizedException);
+    expect(db.create).toHaveBeenCalledTimes(1);
+  });
+
   it('returns no credential when persistence fails', async () => {
     db.create.mockRejectedValue(new Error('Database unavailable'));
     await expect(service.create(userId)).rejects.toThrow('Database unavailable');
