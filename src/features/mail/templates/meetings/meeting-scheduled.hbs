@@ -1,0 +1,14 @@
+{{> school-layout
+  subject=subject
+  logoUrl=logoUrl
+  headerBadge="Meeting"
+  body=(concat
+    "<p>Hello <strong>" userName "</strong>,</p>"
+    "<p>A new meeting has been scheduled.</p>"
+    "<p><strong>Title:</strong> " meetingTitle "</p>"
+    "{{#if meetingDescription}}<p><strong>Description:</strong> " meetingDescription "</p>{{/if}}"
+    "<p><strong>Starts:</strong> " startAt "</p>"
+    "<p><strong>Ends:</strong> " endAt "</p>"
+    "<p>Please make sure to attend.</p>"
+  )
+}}

@@ -1,0 +1,18 @@
+{{> school-layout
+  subject=subject
+  logoUrl=logoUrl
+  headerBadge="Attendance Alert"
+  body=(concat
+    "<p>Hello,</p>"
+    "<p>"
+      "We detected a <strong>low attendance rate</strong> for the student "
+      "<strong>" userName "</strong> in the subject "
+      "<strong>" disciplineName "</strong>."
+    "</p>"
+    "<p>"
+      "The current attendance is <span class='highlight'>" percent "%</span>."
+    "</p>"
+    "<p>Last recorded entry: <strong>" date "</strong>.</p>"
+    "<p>Please take the necessary actions to monitor and support the student's progress.</p>"
+  )
+}}

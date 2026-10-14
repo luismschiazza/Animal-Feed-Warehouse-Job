@@ -1,0 +1,223 @@
+GUIA DE ESTUDO — ISSUE #1: ROLES E MATRIZ DE PERMISSÕES
+==========================================================
+
+Branch: feat/issue-1-domain-roles-permissions
+Commit: 27f733b
+
+OBJETIVO
+--------
+Remover os papéis escolares e estabelecer uma base de papéis empresariais
+para o futuro sistema de estoque. Esta etapa ainda NÃO implementa ABAC/PBAC:
+elas usarão estes papéis como atributos nas próximas issues.
+
+
+1. ENUM CENTRALIZADO DE ROLES
+-----------------------------
+Arquivo: src/common/enums/role.enum.ts
+
+Código:
+
+export enum Role {
+  SYSTEM_ADMIN = 'SYSTEM_ADMIN',
+  ORGANIZATION_OWNER = 'ORGANIZATION_OWNER',
+  MANAGER = 'MANAGER',
+  INVENTORY_OPERATOR = 'INVENTORY_OPERATOR',
+  SALES_ASSOCIATE = 'SALES_ASSOCIATE',
+  CASHIER = 'CASHIER',
+  PURCHASING_AGENT = 'PURCHASING_AGENT',
+  FINANCIAL_ANALYST = 'FINANCIAL_ANALYST',
+  AUDITOR = 'AUDITOR',
+  CUSTOMER = 'CUSTOMER',
+}
+
+Como funciona:
+- Enum evita strings soltas como "admin", "ADMIN" ou "administrator".
+- O mesmo valor é usado nos DTOs, schema MongoDB, JWT e guards.
+- O TypeScript identifica usos de uma role inexistente durante o build.
+- SYSTEM_ADMIN é administração técnica; MANAGER é gestão operacional.
+- CUSTOMER é a role segura para cadastro público.
+
+Importante:
+Roles respondem "qual função esse usuário exerce?". Elas não respondem
+sozinhas "este usuário pode alterar ESTE produto?". A segunda pergunta será
+respondida por ABAC/PBAC usando organização, proprietário, recurso e contexto.
+
+
+2. VALIDAÇÃO DAS ROLES NO MONGODB
+---------------------------------
+Arquivo: src/features/users/schemas/user.schema.ts
+
+Código:
+
+@Prop({ type: [String], enum: Object.values(Role), default: [Role.CUSTOMER] })
+roles: Role[];
+
+Como funciona:
+- type: [String] informa que roles é uma lista de textos no MongoDB.
+- enum: Object.values(Role) aceita somente valores definidos no enum.
+- default concede CUSTOMER se nenhuma role for especificada.
+
+Isso cria uma segunda camada de proteção: mesmo que alguém tente gravar
+"SUPER_ADMIN" diretamente pela aplicação, o schema não aceita esse valor.
+
+
+3. CADASTRO PÚBLICO NÃO RECEBE ROLE
+-----------------------------------
+Arquivo: src/features/users/dtos/validation/create-user.dto.ts
+
+O campo roles foi removido do CreateUserDto.
+
+Arquivo: src/features/users/services/users.service.ts
+
+Código:
+
+const createdUser = new this.userModel({
+  name: createUserDto.name,
+  email: createUserDto.email,
+  password: hashedPassword,
+  roles: [Role.CUSTOMER],
+});
+
+Como funciona:
+- O DTO é a lista de campos aceitos pelo endpoint.
+- Como roles não está no DTO, um POST /users com roles: ["SYSTEM_ADMIN"]
+  falha pela validação global (forbidNonWhitelisted: true).
+- O service também define explicitamente CUSTOMER. Portanto, mesmo se um
+  campo extra chegasse ao service indevidamente, ele não vira privilégio.
+
+Essa é uma proteção contra escalonamento de privilégio no cadastro público.
+
+A atribuição ou alteração de roles fica no UpdateUserDto e atualmente exige
+SYSTEM_ADMIN na rota PATCH /users/:id. Futuramente ela receberá políticas
+PBAC e regras por organização.
+
+
+4. DECORATOR E GUARD DE ROLES
+-----------------------------
+Arquivos:
+- src/common/decorators/roles.decorator.ts
+- src/common/guards/roles.guard.ts
+
+Uso em controller:
+
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SYSTEM_ADMIN)
+@Get()
+async findAll() {
+  // ...
+}
+
+O decorator @Roles grava metadados na rota:
+
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+
+O guard lê os metadados e compara com request.user.roles:
+
+const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+  context.getHandler(),
+  context.getClass(),
+]);
+
+const hasRole = requiredRoles.some((role) => user.roles.includes(role));
+
+if (!hasRole) {
+  throw new ForbiddenException('Insufficient permissions');
+}
+
+Fluxo completo:
+1. JwtAuthGuard valida o Bearer token.
+2. JwtStrategy consulta o usuário e atribui request.user.
+3. RolesGuard obtém as roles exigidas pela rota.
+4. RolesGuard verifica se request.user.roles contém ao menos uma delas.
+5. Sem role compatível, NestJS devolve HTTP 403.
+
+Atenção:
+Este RolesGuard é RBAC simples. Ele é mantido como compatibilidade e camada
+inicial. Na issue PBAC, uma política central vai avaliar ação + recurso +
+atributos, e não somente a role.
+
+
+5. MAPEAMENTO TEMPORÁRIO DAS ROTAS LEGADAS
+------------------------------------------
+Os módulos atuais ainda são escolares. Para retirar referências a STUDENT,
+TEACHER, COORDINATOR e ADMIN sem quebrar a compilação, suas rotas foram
+mapeadas temporariamente assim:
+
+- Gestão de usuários: SYSTEM_ADMIN.
+- Módulos escolares administrativos: SYSTEM_ADMIN ou MANAGER.
+
+Isso NÃO define as permissões finais de estoque. A matriz planejada está em:
+
+  docs/authorization/ROLE_AND_PERMISSION_MATRIX.md
+
+Leia essa matriz antes de implementar uma nova rota de produtos, vendas ou
+estoque. Ela registra quais papéis podem ser candidatos a cada recurso e
+quais condições ABAC serão necessárias.
+
+
+6. TESTES CRIADOS
+-----------------
+Arquivo: src/common/guards/roles.guard.spec.ts
+
+Cenários testados:
+- Rota sem @Roles é liberada pelo RolesGuard.
+- Usuário com MANAGER é aceito em rota que permite MANAGER.
+- SALES_ASSOCIATE é recusado em rota apenas de FINANCIAL_ANALYST.
+- Requisição sem roles é recusada.
+
+Exemplo:
+
+reflector.getAllAndOverride.mockReturnValue([Role.FINANCIAL_ANALYST]);
+
+expect(() =>
+  guard.canActivate(contextWithUser({ roles: [Role.SALES_ASSOCIATE] })),
+).toThrow(ForbiddenException);
+
+Arquivo: src/features/users/services/users.service.spec.ts
+
+Cenário testado:
+- Usuário criado pelo serviço recebe somente CUSTOMER.
+
+expect(mockUserModel).toHaveBeenCalledWith(
+  expect.objectContaining({ roles: ['CUSTOMER'] }),
+);
+
+
+7. COMANDOS DE QUALIDADE
+------------------------
+
+Executar testes:
+
+npm test -- --runInBand
+
+Executar lint:
+
+npm run lint
+
+Compilar TypeScript:
+
+npm run build
+
+Resultado desta implementação:
+- Jest: 6 suites aprovadas; 14 testes aprovados.
+- ESLint: sem erros e sem warnings.
+- Build NestJS: aprovado.
+
+
+8. PRÓXIMA EVOLUÇÃO
+-------------------
+Issue #2 cria sessões independentes para celular/computador.
+Issue #3 cria o motor PBAC: uma política decide se uma ação é permitida.
+Issue #4 aplica ABAC: a política verificará atributos como:
+
+- organizationId do usuário e do recurso;
+- usuário proprietário ou criador;
+- role/função;
+- status de conta;
+- estado do recurso;
+- local de estoque atribuído;
+- contexto da sessão e, quando fizer sentido, horário.
+
+Regra essencial:
+NUNCA confiar em uma checagem feita apenas no frontend. Toda autorização
+importante deve ser validada no backend antes de ler ou alterar o recurso.
