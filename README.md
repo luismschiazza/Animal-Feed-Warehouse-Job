@@ -33,7 +33,7 @@ Sessões têm duração absoluta de sete dias e limite de 1.000 rotações. O cl
 
 A implementação foi validada com MongoDB real e testes HTTP. Detalhes e reprodução dos testes: [`docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md`](docs/authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
 
-A infraestrutura PBAC em revisão usa um guard global: somente rotas explicitamente públicas dispensam JWT; toda outra rota exige sessão ativa e política registrada. Ausência de política é negada, inclusive para administrador. Consulte [PBAC — implementação e estudo](docs/authorization/PBAC_IMPLEMENTATION_STUDY.md). Isolamento ABAC por organização ainda será implementado na #4.
+A infraestrutura PBAC usa um guard global: somente rotas explicitamente públicas dispensam JWT; toda outra rota exige sessão ativa e política registrada. Ausência de política é negada, inclusive para administrador. Consulte [PBAC — implementação e estudo](docs/authorization/PBAC_IMPLEMENTATION_STUDY.md). Isolamento ABAC por organização ainda será implementado na #4.
 
 ### Papéis atuais
 
@@ -161,7 +161,7 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 
 1. papéis empresariais e matriz de permissões — concluído;
 2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado;
-3. motor de políticas PBAC — implementado e validado, em revisão;
+3. motor de políticas PBAC — implementado e validado;
 4. ABAC e isolamento por organização/recurso;
 5. auditoria e testes de segurança;
 6. produtos, categorias, marcas e unidades;

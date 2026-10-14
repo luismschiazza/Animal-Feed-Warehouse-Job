@@ -4,7 +4,7 @@ Issue: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/3
 
 ## Estado
 
-Implementação validada, preparada para revisão na branch `feat/issue-3-pbac-policy-engine`, baseada na main integrada pelo PR #7. A issue #2 já foi concluída e integrada. Este documento não declara a #3 integrada ou implantada em produção.
+Implementação validada e aprovada pelo responsável para entrega pelo [PR #8](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/8), a partir de `feat/issue-3-pbac-policy-engine`. O status de integração e encerramento é rastreado no PR e na issue. Não representa implantação em produção ou auditoria integral de segurança.
 
 ## O problema que resolvemos
 
@@ -159,4 +159,4 @@ A lista de controllers do teste de cobertura deve ser atualizada ao adicionar m�
 
 ## Próximo passo
 
-Publicar a branch e PR para revisão, registrar evidências e integrar após aceite. Não encerrar a #3 apenas por este documento. Depois seguir a #4 conforme autorização do responsável.
+Conferir integração do PR #8 e repetir as validações antes de registrar o encerramento. Após concluir a #3, aguardar autorização explícita para iniciar a #4. Reforços adicionais continuam reservados ao planejamento conjunto após #6.

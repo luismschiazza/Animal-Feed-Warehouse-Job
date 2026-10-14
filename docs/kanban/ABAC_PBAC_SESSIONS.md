@@ -15,18 +15,17 @@
 
 ## Em andamento
 
-_Nenhum item ativo enquanto a #3 aguarda revisão e integração._
+_Nenhum item ativo. Aguardar autorização do responsável para iniciar a #4._
 
 ## Em revisão
 
-- [ ] #03 Infraestrutura PBAC: guard global, registry tipado e negação por padrão implementados. 121 testes unitários, 12 integração/HTTP com MongoDB e 1 E2E aprovados. Revisão/integração pendentes.
-
-Detalhes: [PBAC — implementação e estudo](../authorization/PBAC_IMPLEMENTATION_STUDY.md).
+_Nenhum item._
 
 ## Concluído
 
 - [x] #01 Papéis empresariais e matriz inicial: issue encerrada e código integrado pelo PR #7.
 - [x] #02 Sessões por dispositivo: PR #7 integrado à main (cd31d07), issue encerrada após validação. [Relatório técnico](../authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
+- [x] #03 Infraestrutura PBAC: entrega pelo PR #8 aprovada pelo responsável; integração e aceite rastreados na issue. 121 testes unitários, 12 integração/HTTP com MongoDB e 1 E2E aprovados. [Implementação e estudo](../authorization/PBAC_IMPLEMENTATION_STUDY.md).
 
 Históricos reconciliados por merge sem force-push, preservando commits e LICENSE. #07 e #08 são itens de planejamento local, não issues numeradas confirmadas nesta revisão. Reforços adicionais serão planejados em conjunto após #6, antes dos CRUDs.
 

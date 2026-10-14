@@ -1,7 +1,7 @@
 # Matriz inicial de papéis e permissões
 
 > Issue: [#1](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/1)  
-> Estado: base RBAC integrada; infraestrutura PBAC implementada na branch da issue #3, em revisão. Isolamento ABAC será aplicado na #4.
+> Estado: base RBAC e infraestrutura PBAC implementadas e validadas. Entrega PBAC pelo PR #8. Isolamento ABAC será aplicado na #4, após autorização do responsável.
 
 ## Princípios
 
