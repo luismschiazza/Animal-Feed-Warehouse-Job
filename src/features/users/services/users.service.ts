@@ -53,20 +53,6 @@ export class UsersService {
     return this.userModel.findById(id).select('+roles').exec();
   }
 
-  async findOneByIdWithRefreshTokenHash(id: string): Promise<User | null> {
-    return this.userModel.findById(id).select('+roles +refreshTokenHash').exec();
-  }
-
-  async updateRefreshTokenHash(id: string, refreshTokenHash: string): Promise<User | null> {
-    return this.userModel.findByIdAndUpdate(id, { refreshTokenHash }, { new: true }).exec();
-  }
-
-  async clearRefreshTokenHash(id: string): Promise<User | null> {
-    return this.userModel
-      .findByIdAndUpdate(id, { $unset: { refreshTokenHash: '' } }, { new: true })
-      .exec();
-  }
-
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User | null> {
     const existingUser = await this.findOneById(id);
     if (!existingUser) {

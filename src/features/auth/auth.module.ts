@@ -4,6 +4,7 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
 import { UsersModule } from '@/features/users/users.module';
+import { AuthSessionsModule } from './auth-sessions.module';
 import { AuthController } from './controllers/auth.controller';
 import { AuthService } from './services/auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -13,6 +14,7 @@ import { LocalStrategy } from './strategies/local.strategy';
   imports: [
     ConfigModule,
     UsersModule,
+    AuthSessionsModule,
     PassportModule.register({ defaultStrategy: 'jwt', session: false }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -26,7 +28,7 @@ import { LocalStrategy } from './strategies/local.strategy';
           return secret;
         })(),
         signOptions: {
-          expiresIn: config.get<StringValue>('JWT_EXPIRES_IN') ?? '24h',
+          expiresIn: config.get<StringValue>('JWT_EXPIRES_IN') ?? '15m',
         },
       }),
     }),

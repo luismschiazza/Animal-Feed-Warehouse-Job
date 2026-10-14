@@ -19,6 +19,8 @@ export class User extends Document {
   @Prop({ select: false })
   rememberToken: string;
 
+  // Legacy field: retained only to redact old records during migration.
+  // Authentication no longer reads or writes this verifier.
   @Prop({ select: false })
   refreshTokenHash: string;
 

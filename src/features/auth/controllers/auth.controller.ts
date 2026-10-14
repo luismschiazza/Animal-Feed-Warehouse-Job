@@ -15,7 +15,10 @@ export class AuthController {
   @Throttle({ default: { ttl: seconds(60), limit: 5 } })
   @Post('login')
   async login(@Body() _loginDto: LoginRequestDto, @Request() req) {
-    return this.authService.login(req.user);
+    return this.authService.login(req.user, {
+      ip: req.ip,
+      userAgent: req.headers?.['user-agent'],
+    });
   }
 
   @Throttle({ default: { ttl: seconds(60), limit: 5 } })
@@ -29,6 +32,6 @@ export class AuthController {
   @HttpCode(200)
   @Post('logout')
   async logout(@Request() req) {
-    return this.authService.logout(req.user.id);
+    return this.authService.logout(req.user.id, req.user.sessionId);
   }
 }

@@ -24,10 +24,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    const user = await this.authService.validateUserById(payload.sub);
-    if (!user) throw new UnauthorizedException();
+    if (!payload || typeof payload.sub !== 'string' || typeof payload.sid !== 'string') {
+      throw new UnauthorizedException('Session-bound token required');
+    }
+    const user = await this.authService.validateSession(payload.sub, payload.sid);
     return {
       id: user.id,
+      sessionId: payload.sid,
       email: user.email,
       name: user.name,
       roles: user.roles,
