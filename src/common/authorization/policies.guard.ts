@@ -41,6 +41,9 @@ export class PoliciesGuard extends JwtAuthGuard {
         requirement.resource === PolicyResource.SESSION;
       const policyContext: PolicyContext = {
         subject: request.user,
+        // Until a trusted resource loader and scoped services are in place, tenant
+        // resources have no organizationId and fail closed. Never copy the subject's
+        // organizationId here as proof that an arbitrary resource ID belongs to it.
         resource: {
           type: requirement.resource,
           id: ownResource

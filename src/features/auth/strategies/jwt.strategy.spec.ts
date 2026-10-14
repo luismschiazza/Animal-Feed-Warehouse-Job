@@ -40,6 +40,13 @@ describe('JwtStrategy', () => {
     expect(result).toMatchObject({ id: 'id', sessionId: 'sid', roles: [Role.CUSTOMER] });
   });
 
+  it('rejects JWT organization mismatches instead of trusting claims', async () => {
+    validateSession.mockResolvedValue({ id: 'id', roles: [Role.CUSTOMER], organizationId: 'A' });
+    await expect(
+      strategy.validate({ sub: 'id', sid: 'sid', email: '', roles: [], organizationId: 'B' }),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
   it('fails closed on revocation or database unavailability', async () => {
     validateSession.mockRejectedValue(new UnauthorizedException());
     const payload = { sub: 'id', sid: 'sid', email: '', roles: [] };

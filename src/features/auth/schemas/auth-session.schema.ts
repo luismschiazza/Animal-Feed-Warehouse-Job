@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 export enum SessionRevocationReason {
   LOGOUT = 'logout',
@@ -27,8 +27,12 @@ export class AuthSession {
   @Prop({ required: true })
   sessionId: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
+
+  // null means personal account access, not a default/global tenant.
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Organization', default: null, immutable: true })
+  organizationId: Types.ObjectId | null;
 
   @Prop({ required: true })
   currentTokenId: string;

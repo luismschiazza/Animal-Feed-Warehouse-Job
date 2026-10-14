@@ -4,9 +4,9 @@ Issue: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/4
 
 ## Estado real
 
-**Em andamento — etapa 1: organização e vínculos.** Branch `feat/issue-4-abac-tenant-isolation`, baseada na main com #1–#3 integradas.
+**Em andamento — etapas 1 e 2: organização/vínculos e autenticação contextual.** Branch `feat/issue-4-abac-tenant-isolation`, baseada na main com #1–#3 integradas. Draft PR #9 acompanha o trabalho; NÃO pronto para integração.
 
-Esta etapa ainda NÃO conecta o novo módulo ao AppModule, à autenticação ou às consultas dos recursos. Não declarar isolamento transversal pronto: os serviços atuais ainda possuem consultas globais. Não encerrar a issue nem implantar esta etapa como solução de isolamento completa.
+O módulo está ligado à autenticação, mas os serviços de recursos ainda precisam de filtros e carregamento de atributos confiáveis. As políticas de dados operacionais exigem escopo e ficam negadas enquanto não houver organizationId confiável do recurso. Perfil/logout próprios continuam disponíveis quando conta e contexto da sessão são válidos. Não encerrar nem implantar este estado intermediário como isolamento completo.
 
 ## Diferença entre PBAC e ABAC
 
@@ -16,7 +16,7 @@ Ter o papel MANAGER não deve autorizar registros de todas as organizações. Um
 
 ## Diagnóstico do código atual
 
-- User possui papéis globais, sem vínculos por organização.
+- O modelo User mantém papéis globais legados por compatibilidade; a autenticação desta branch não os transforma em permissões de organização. Usa papéis do vínculo ou CUSTOMER para acesso pessoal.
 - PoliciesGuard valida JWT/sessão e políticas, mas não carrega organização de recursos.
 - UsersService, DisciplinesService e GradesService possuem consultas globais, como find(), findById() e findByIdAndUpdate(). Os demais serviços serão auditados na migração.
 - Grade relaciona usuário/disciplina; filtrar só a nota não basta se for possível referenciar uma entidade de outra organização.
@@ -67,15 +67,59 @@ Estas leituras produzem um contexto daquele momento; não travam suspensão/revo
 
 ### Módulos
 
-OrganizationModelModule registra os dois schemas. OrganizationsModule disponibiliza OrganizationAccessService para futura integração. Ainda não está importado no AppModule/AuthModule.
+OrganizationModelModule registra os dois schemas. OrganizationsModule disponibiliza OrganizationAccessService e agora é importado pelo AuthModule, utilizado pelo AppModule.
+
+## Etapa 2 — Conta, sessão e organização
+
+### Estado da conta
+
+AccountStatus define pending, active e suspended. O schema User usa pending como padrão: um registro legado sem estado explícito não se torna ativo silenciosamente ao ser carregado. Cadastro público via UsersService cria somente conta pessoal active/CUSTOMER, sem aceitar organização, status ou papéis enviados pelo cliente.
+
+Active não significa email verificado. Verificação de email/recuperação e outros reforços permanecem no planejamento correspondente; não declarar que foram implementados por esse campo.
+
+Login exige senha correta e conta active. Após validar a senha, o serviço relê a conta antes de criar sessão. Cada acesso e refresh relê o estado. Conta ausente/suspensa/sem estado ativo recebe 401.
+
+### Escolha de organização
+
+LoginRequestDto aceita organizationId opcional (24 caracteres hexadecimais). Exemplo conceitual:
+
+```json
+{ "email": "usuario@example.com", "password": "senha", "organizationId": "0123456789abcdef01234567" }
+```
+
+O ID pedido é somente um candidato: o serviço confirma organização/vínculo ativos e busca papéis no banco antes de persistir a sessão. Sem vínculo, 403 sem criar sessão. Não há escolha automática da primeira organização nem ingresso automático.
+
+Omitir organizationId cria sessão pessoal: organization_id null e papel efetivo CUSTOMER. Mesmo que a conta tenha o papel global legado SYSTEM_ADMIN, isso não autoriza dados empresariais.
+
+### Organização da sessão e JWT
+
+AuthSession contém organizationId BSON ObjectId (ou null para escopo pessoal). Campo imutável para atualizações normais do Mongoose; trocar de organização exige novo login. UserId também usa declaração SchemaTypes.ObjectId para casting confiável.
+
+O JWT contém organizationId quando a sessão tem organização. A estratégia confirma consistência com a organização persistida, em vez de aceitar o claim como autorização. Em cada acesso, AuthService valida sessão/conta e recarrega vínculo e papéis. Mudança de papel, suspensão/revogação do vínculo ou suspensão da organização afeta o próximo acesso desse contexto; outra organização ou sessão pessoal não herda essa suspensão. Conta suspensa bloqueia todos os contextos.
+
+Refresh mantém a organização do registro e ignora headers de organização; o body não admite trocar organizationId. O fluxo faz rotação atômica e depois revalida contexto. Se a revalidação falhar, nenhum par é emitido; o refresh apresentado pode ter sido consumido, exigindo novo login. Não há tolerância de replay/idempotência introduzida nesta etapa.
+
+Suspender estado bloqueia acesso enquanto o estado estiver inválido; não apaga nem revoga automaticamente todas as sessões. Reativação pode tornar tokens ainda vigentes utilizáveis novamente. Revogação física em lote deve ser tratada explicitamente, não presumida a partir do campo status.
+
+Uma sessão de organização com vínculo inválido também falha ao tentar seu perfil/logout pelo JWT. A conta ainda ativa pode fazer login pessoal; gestão de outras sessões será tratada na #5. Não há bypass de vínculo em autenticação nesta etapa.
+
+### Condições ABAC e bloqueio intermediário
+
+PolicySubject inclui estado da conta, organização e vínculo/status validados. PolicyEngine nega conta não ativa. Políticas de usuários e módulos escolares exigem organização/vínculo ativos e organizationId do recurso igual ao do sujeito.
+
+PoliciesGuard ainda NÃO carrega organizationId dos recursos. Portanto, essas rotas de dados ficam temporariamente negadas (403), inclusive para administradores com vínculo ativo. Não copiar organizationId do usuário como se fosse prova do dono de qualquer ID solicitado: isso esconderia IDOR. A próxima etapa deverá carregar atributos confiáveis e filtrar os serviços antes de habilitar operações.
+
+### Migração
+
+Não foi executada atualização do banco da aplicação. Contas/seed legados sem status explícito serão pending e não farão login nesta branch; precisam de ativação revisada em plano de migração. Sessões antigas sem organização não ganham uma empresa: após ativação da conta, só permitem escopo pessoal. Papéis globais legados não são convertidos automaticamente em vínculos administrativos. Draft não deve ser implantado antes de resolver dados antigos, filtros e provisionamento.
 
 ## Testes e resultado
 
 | Comando | Resultado nesta etapa |
 |---|---|
-| npm test -- --runInBand | 14 suítes, 138 testes aprovados |
+| npm test -- --runInBand | 15 suítes, 151 testes aprovados |
 | npm run test:abac com MongoDB 8 isolado | 9 testes de organização/vínculo aprovados |
-| npm run test:sessions com MongoDB isolado | 12 regressões de sessão/PBAC aprovadas |
+| npm run test:sessions com MongoDB isolado | 23 testes de autenticação contextual/sessão/PBAC aprovados |
 | npm run test:e2e -- --runInBand | 1 E2E existente aprovado |
 | npm run build | Aprovado |
 | npm run lint | Aprovado |
@@ -93,7 +137,7 @@ Testes novos comprovam:
 
 Na primeira execução real, duas consultas legítimas falharam: referências string não eram convertidas corretamente pela declaração anterior. Alterado o tipo para SchemaTypes.ObjectId, incluídos testes do schema e do BSON persistido, e repetida a suíte completa com sucesso. Diagnósticos temporários removidos; nenhum log de depuração permanece no código.
 
-Os testes do resolver usam identificadores sintéticos de usuários: validam o vínculo, não a autenticação da conta. Testes de login/conta/recursos entre organizações ainda serão implementados.
+Os testes isolados do resolver usam identificadores sintéticos de usuários. A suíte HTTP agora usa contas reais e comprova sessões A/B, papéis por vínculo, recarga de atributos, conta/org/vínculo suspensos, conta legada sem status, ausência de ingresso automático, JWT inconsistente, headers forjados e refresh sem troca de organização. Testes de leitura/alteração dos recursos e IDOR de entidades ainda estão pendentes.
 
 Banco abac_test_* e sessions_test_* de nomes únicos; não usa MONGO_URL da aplicação. Containers e bancos dedicados removidos ao final. Nenhuma migração ou alteração no banco da aplicação foi executada.
 
@@ -119,9 +163,9 @@ Sem ABAC_TEST_MONGO_URL, a suíte falha explicitamente. Não usar o banco real d
 
 ## Próximas etapas obrigatórias da #4
 
-1. Estado da conta: impedir autenticação/uso de conta suspensa e definir migração dos registros sem estado.
-2. Vincular sessão a organização selecionada e validada no servidor; recarregar vínculo/papéis atuais, sem confiar em headers/claims como permissão.
-3. Conta sem vínculo não deve ganhar organização ou dados operacionais por padrão. Definir acesso pessoal de perfil/logout separadamente.
+1. Estado da conta implementado; concluir o plano de migração e provisionamento sem ativação cega dos registros antigos.
+2. Sessão/organização e recarga de vínculo implementadas; manter regressões ao migrar os serviços.
+3. Escopo pessoal separado e sem organização automática implementado; operações de dados ainda negadas enquanto não houver atributos confiáveis.
 4. Atributos de recurso: organização, proprietário/criador e estado com semântica por entidade.
 5. Filtros obrigatórios nos serviços: id + organização em leitura/alteração/exclusão e organização em listagens. Não basta checar o controller e depois usar findById global.
 6. Verificar todas as referências de criação/alteração/populate: usuário, disciplina e demais relações precisam de vínculo à mesma organização autorizada.

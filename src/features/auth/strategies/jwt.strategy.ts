@@ -28,12 +28,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Session-bound token required');
     }
     const user = await this.authService.validateSession(payload.sub, payload.sid);
-    return {
-      id: user.id,
-      sessionId: payload.sid,
-      email: user.email,
-      name: user.name,
-      roles: user.roles,
-    };
+    if (payload.organizationId !== user.organizationId) {
+      throw new UnauthorizedException('Token organization does not match session');
+    }
+    return { ...user, sessionId: payload.sid };
   }
 }

@@ -35,6 +35,12 @@ A implementação foi validada com MongoDB real e testes HTTP. Detalhes e reprod
 
 A infraestrutura PBAC usa um guard global: somente rotas explicitamente públicas dispensam JWT; toda outra rota exige sessão ativa e política registrada. Ausência de política é negada, inclusive para administrador. Consulte [PBAC — implementação e estudo](docs/authorization/PBAC_IMPLEMENTATION_STUDY.md). Isolamento ABAC por organização ainda será implementado na #4.
 
+### ABAC em desenvolvimento — Draft PR #9
+
+Nesta branch, login aceita `organizationId` opcional e exige vínculo ativo. Sem organização, a sessão é pessoal (`organization_id: null`), sem privilégios empresariais derivados dos papéis globais antigos. Conta, organização e vínculo são revalidados no servidor.
+
+**Estado intermediário, não pronto para implantação:** rotas de dados operacionais ficam negadas enquanto não houver atributos confiáveis e filtros nos serviços. Contas antigas sem `status` explícito ficam pendentes e exigem migração revisada; não são ativadas automaticamente. Detalhes: [ABAC — implementação incremental](docs/authorization/ABAC_IMPLEMENTATION_STUDY.md).
+
 ### Papéis atuais
 
 | Papel | Responsabilidade inicial |
@@ -162,7 +168,7 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 1. papéis empresariais e matriz de permissões — concluído;
 2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado;
 3. motor de políticas PBAC — implementado e validado;
-4. ABAC e isolamento por organização/recurso — em andamento: base de organizações/vínculos, ainda sem isolamento completo da API;
+4. ABAC e isolamento por organização/recurso — em andamento: organizações/vínculos, estado da conta e sessão contextual; filtros de recursos ainda pendentes;
 5. auditoria e testes de segurança;
 6. produtos, categorias, marcas e unidades;
 7. locais, saldo e movimentações de estoque;

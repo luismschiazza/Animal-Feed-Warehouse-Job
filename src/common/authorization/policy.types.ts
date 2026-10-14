@@ -1,3 +1,4 @@
+import { AccountStatus } from '../enums/account-status.enum';
 import { Role } from '../enums/role.enum';
 
 export enum PolicyAction {
@@ -28,6 +29,11 @@ export interface PolicySubject {
   id: string;
   roles: Role[];
   sessionId: string;
+  status: AccountStatus;
+  organizationId?: string;
+  membershipId?: string;
+  organizationStatus?: 'active' | 'suspended';
+  membershipStatus?: 'invited' | 'active' | 'suspended' | 'revoked';
 }
 
 export interface PolicyResourceAttributes {

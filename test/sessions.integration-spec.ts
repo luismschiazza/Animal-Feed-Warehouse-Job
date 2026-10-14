@@ -14,6 +14,7 @@ import { PoliciesGuard } from '@/common/authorization/policies.guard';
 import { PolicyEngine } from '@/common/authorization/policy-engine.service';
 import { Public, RequirePolicies } from '@/common/authorization/policy.decorators';
 import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
+import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 import { AuthSessionsModule } from '@/features/auth/auth-sessions.module';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
@@ -25,6 +26,12 @@ import {
 import { AuthService } from '@/features/auth/services/auth.service';
 import { JwtStrategy } from '@/features/auth/strategies/jwt.strategy';
 import { LocalStrategy } from '@/features/auth/strategies/local.strategy';
+import { OrganizationsModule } from '@/features/organizations/organizations.module';
+import {
+  MembershipStatus,
+  OrganizationMembership,
+} from '@/features/organizations/schemas/organization-membership.schema';
+import { Organization } from '@/features/organizations/schemas/organization.schema';
 import { UserModelModule } from '@/features/users/models/user-model.module';
 import { User } from '@/features/users/schemas/user.schema';
 import { UsersService } from '@/features/users/services/users.service';
@@ -34,7 +41,13 @@ class ProbeController {
   @Get()
   @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.PROFILE })
   probe(@Req() req) {
-    return { id: req.user.id, sessionId: req.user.sessionId, roles: req.user.roles };
+    return {
+      id: req.user.id,
+      sessionId: req.user.sessionId,
+      roles: req.user.roles,
+      organizationId: req.user.organizationId ?? null,
+      membershipId: req.user.membershipId,
+    };
   }
 
   @Get('admin')
@@ -84,6 +97,8 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
   let sessions: AuthSessionsService;
   let sessionModel: Model<AuthSession>;
   let users: Model<User>;
+  let organizations: Model<Organization>;
+  let memberships: Model<OrganizationMembership>;
   let jwt: JwtService;
   let userId: string;
   const databaseName = `sessions_test_${randomUUID().replace(/-/g, '')}`;
@@ -102,6 +117,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         MongooseModule.forRoot(uri, { dbName: databaseName, serverSelectionTimeoutMS: 10_000 }),
         AuthSessionsModule,
         UserModelModule,
+        OrganizationsModule,
         PassportModule.register({ defaultStrategy: 'jwt', session: false }),
         JwtModule.register({
           secret: 'integration-only-secret-not-for-production',
@@ -129,6 +145,9 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     sessionModel = module.get(getModelToken(AuthSession.name));
     users = module.get(getModelToken(User.name));
     jwt = module.get(JwtService);
+    organizations = module.get(getModelToken(Organization.name));
+    memberships = module.get(getModelToken(OrganizationMembership.name));
+    await memberships.init();
     await sessionModel.init();
     await users.init();
   });
@@ -136,11 +155,14 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
   beforeEach(async () => {
     await sessionModel.deleteMany({});
     await users.deleteMany({});
+    await memberships.deleteMany({});
+    await organizations.deleteMany({});
     const user = await users.create({
       name: 'Session learner',
       email: 'session@example.com',
       password: await bcrypt.hash(password, 4),
       roles: [Role.CUSTOMER],
+      status: AccountStatus.ACTIVE,
     });
     userId = user.id;
   });
@@ -150,16 +172,194 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     if (app) await app.close();
   });
 
-  async function login(device = 'Computer') {
+  async function login(device = 'Computer', organizationId?: string) {
     const result = await request(app.getHttpServer())
       .post('/auth/login')
       .set('User-Agent', device)
-      .send({ email: 'session@example.com', password })
+      .send({
+        email: 'session@example.com',
+        password,
+        ...(organizationId ? { organizationId } : {}),
+      })
       .expect(201);
-    return result.body as { access_token: string; refresh_token: string; session_id: string };
+    return result.body as {
+      access_token: string;
+      refresh_token: string;
+      session_id: string;
+      organization_id: string | null;
+    };
   }
   const probe = (token: string) =>
     request(app.getHttpServer()).get('/probe').auth(token, { type: 'bearer' });
+
+  async function tenant(name: string, roles: Role[] = [Role.MANAGER]) {
+    const organization = await organizations.create({ name });
+    await memberships.create({
+      organizationId: organization._id,
+      userId,
+      status: MembershipStatus.ACTIVE,
+      roles,
+    });
+    return organization._id.toString();
+  }
+
+  it('binds independent sessions to A/B and uses roles from each membership', async () => {
+    const a = await tenant('A', [Role.MANAGER]);
+    const b = await tenant('B', [Role.CASHIER]);
+    const first = await login('A device', a);
+    const second = await login('B device', b);
+    expect(first.organization_id).toBe(a);
+    expect(second.organization_id).toBe(b);
+    const inA = await probe(first.access_token).expect(200);
+    const inB = await probe(second.access_token).expect(200);
+    expect(inA.body).toMatchObject({ organizationId: a, roles: [Role.MANAGER] });
+    expect(inB.body).toMatchObject({ organizationId: b, roles: [Role.CASHIER] });
+    const saved = await sessionModel.findOne({ sessionId: first.session_id });
+    expect(saved?.organizationId?.toString()).toBe(a);
+    expect(
+      await sessionModel.collection.countDocuments({
+        sessionId: first.session_id,
+        userId: { $type: 'objectId' },
+        organizationId: { $type: 'objectId' },
+      }),
+    ).toBe(1);
+    expect(jwt.decode(first.access_token)).toMatchObject({ organizationId: a });
+    const headerAttempt = await request(app.getHttpServer())
+      .get('/probe')
+      .auth(first.access_token, { type: 'bearer' })
+      .set('X-Organization-Id', b)
+      .expect(200);
+    expect(headerAttempt.body.organizationId).toBe(a);
+  });
+
+  it('does not infer a tenant or administrative permission from account roles', async () => {
+    await tenant('A', [Role.SYSTEM_ADMIN]);
+    await users.updateOne({ _id: userId }, { $set: { roles: [Role.SYSTEM_ADMIN] } });
+    const personal = await login();
+    expect(personal.organization_id).toBeNull();
+    expect((await probe(personal.access_token).expect(200)).body.roles).toEqual([Role.CUSTOMER]);
+    await request(app.getHttpServer())
+      .get('/probe/admin')
+      .auth(personal.access_token, { type: 'bearer' })
+      .expect(403);
+  });
+
+  it('rejects an unauthorized tenant before persisting a session and rejects invalid input', async () => {
+    await tenant('A');
+    const b = (await organizations.create({ name: 'B without membership' }))._id.toString();
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'session@example.com', password, organizationId: b })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'session@example.com', password, organizationId: 'invalid' })
+      .expect(400);
+    expect(await sessionModel.countDocuments()).toBe(0);
+  });
+
+  it('blocks suspended accounts on existing access, refresh and new login', async () => {
+    const current = await login();
+    await users.updateOne({ _id: userId }, { $set: { status: AccountStatus.SUSPENDED } });
+    await probe(current.access_token).expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: current.refresh_token })
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'session@example.com', password })
+      .expect(401);
+  });
+
+  it('denies legacy accounts without explicit active state rather than defaulting them active', async () => {
+    const current = await login();
+    await users.collection.updateOne(
+      { _id: new Types.ObjectId(userId) },
+      { $unset: { status: '' } },
+    );
+    await probe(current.access_token).expect(401);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'session@example.com', password })
+      .expect(401);
+  });
+
+  it.each([MembershipStatus.INVITED, MembershipStatus.SUSPENDED, MembershipStatus.REVOKED])(
+    'blocks a tenant session after its membership becomes %s, not another tenant',
+    async (status) => {
+      const a = await tenant('A');
+      const b = await tenant('B');
+      const inA = await login('A', a);
+      const inB = await login('B', b);
+      await memberships.updateOne({ organizationId: a, userId }, { $set: { status } });
+      await probe(inA.access_token).expect(403);
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refreshToken: inA.refresh_token })
+        .expect(403);
+      await probe(inB.access_token).expect(200);
+    },
+  );
+
+  it('blocks suspended organizations without blocking personal access or another tenant', async () => {
+    const a = await tenant('A', [Role.SYSTEM_ADMIN]);
+    const b = await tenant('B');
+    const inA = await login('A', a);
+    const inB = await login('B', b);
+    const personal = await login();
+    await organizations.updateOne({ _id: a }, { $set: { status: 'suspended' } });
+    await probe(inA.access_token).expect(403);
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: inA.refresh_token })
+      .expect(403);
+    await probe(inB.access_token).expect(200);
+    await probe(personal.access_token).expect(200);
+  });
+
+  it('reloads membership roles and rejects JWT tenant claims inconsistent with the session', async () => {
+    const a = await tenant('A', [Role.SYSTEM_ADMIN]);
+    const current = await login('A', a);
+    await memberships.updateOne(
+      { organizationId: a, userId },
+      { $set: { roles: [Role.CUSTOMER] } },
+    );
+    expect((await probe(current.access_token).expect(200)).body.roles).toEqual([Role.CUSTOMER]);
+    const wrong = jwt.sign({
+      sub: userId,
+      sid: current.session_id,
+      organizationId: new Types.ObjectId().toString(),
+    });
+    const missing = jwt.sign({ sub: userId, sid: current.session_id });
+    await probe(wrong).expect(401);
+    await probe(missing).expect(401);
+  });
+
+  it('keeps refresh bound to its stored organization, ignoring forged headers', async () => {
+    const a = await tenant('A');
+    const b = await tenant('B');
+    const current = await login('A', a);
+    // Mongoose writes cannot move an existing session to another organization.
+    await sessionModel.updateOne(
+      { sessionId: current.session_id },
+      { $set: { organizationId: b } },
+    );
+    expect(
+      (await sessionModel.findOne({ sessionId: current.session_id }))?.organizationId?.toString(),
+    ).toBe(a);
+    const refreshed = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('X-Organization-Id', b)
+      .send({ refreshToken: current.refresh_token })
+      .expect(200);
+    expect(refreshed.body.organization_id).toBe(a);
+    expect(jwt.decode(refreshed.body.access_token)).toMatchObject({ organizationId: a });
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .send({ refreshToken: refreshed.body.refresh_token, organizationId: b })
+      .expect(400);
+  });
 
   it('returns 401 without authentication and 403 without an explicit allowed policy', async () => {
     await request(app.getHttpServer()).get('/probe/admin').expect(401);
@@ -173,11 +373,12 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     }
     await request(app.getHttpServer()).get('/probe/conflict').expect(403);
     await users.updateOne({ _id: userId }, { $set: { roles: [Role.SYSTEM_ADMIN] } });
+    // Global account roles and a personal session must never become tenant permissions.
     for (const path of ['admin', 'all-required']) {
       await request(app.getHttpServer())
         .get(`/probe/${path}`)
         .auth(session.access_token, { type: 'bearer' })
-        .expect(200);
+        .expect(403);
     }
     for (const path of ['undeclared', 'empty', 'unknown-policy']) {
       await request(app.getHttpServer())
@@ -354,10 +555,10 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     expect(await sessionModel.countDocuments()).toBe(0);
   });
 
-  it('reads current roles instead of trusting old JWT roles', async () => {
+  it('does not grant global account roles to an unaffiliated personal session', async () => {
     const session = await login();
     await users.updateOne({ _id: userId }, { $set: { roles: [Role.MANAGER] } });
     const result = await probe(session.access_token).expect(200);
-    expect(result.body.roles).toEqual([Role.MANAGER]);
+    expect(result.body.roles).toEqual([Role.CUSTOMER]);
   });
 });

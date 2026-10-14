@@ -14,7 +14,7 @@
 
 ## Em andamento
 
-- [ ] #04 ABAC e isolamento: etapa 1 de organizações/vínculos implementada e validada. Ainda não conectada a sessões/recursos; filtros dos serviços e migração pendentes. [Implementação e estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
+- [ ] #04 ABAC e isolamento: organizações/vínculos e autenticação contextual implementados. Estado da conta e organização da sessão revalidados; operações de dados negadas até carregamento de atributos/filtros dos serviços. Migração e testes IDOR dos recursos pendentes. [Implementação e estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
 
 ## Em revisão
 

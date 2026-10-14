@@ -16,14 +16,19 @@ export interface SessionMetadata {
 export class AuthSessionsService {
   constructor(@InjectModel(AuthSession.name) private readonly sessions: Model<AuthSession>) {}
 
-  async create(userId: string, metadata: SessionMetadata = {}) {
-    if (!/^[a-f0-9]{24}$/i.test(userId)) throw this.invalidSession();
+  async create(userId: string, metadata: SessionMetadata = {}, organizationId?: string) {
+    if (
+      !/^[a-f0-9]{24}$/i.test(userId) ||
+      (organizationId !== undefined && !/^[a-f0-9]{24}$/i.test(organizationId))
+    )
+      throw this.invalidSession();
     const credential = generateRefreshToken();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
     await this.sessions.create({
       sessionId: credential.sessionId,
       userId: new Types.ObjectId(userId),
+      organizationId: organizationId === undefined ? null : new Types.ObjectId(organizationId),
       currentTokenId: credential.tokenId,
       currentTokenHash: credential.tokenHash,
       lastUsedAt: now,

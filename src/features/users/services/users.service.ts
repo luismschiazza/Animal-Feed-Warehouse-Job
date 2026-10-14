@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcryptjs';
 import { Model } from 'mongoose';
+import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 import { CreateUserDto } from '../dtos/validation/create-user.dto';
 import { UpdateUserDto } from '../dtos/validation/update-user.dto';
@@ -25,6 +26,8 @@ export class UsersService {
       email: createUserDto.email,
       password: hashedPassword,
       roles: [Role.CUSTOMER],
+      // Public registration permits a personal account, never organization membership.
+      status: AccountStatus.ACTIVE,
     });
 
     const saved = await createdUser.save();

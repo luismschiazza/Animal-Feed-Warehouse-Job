@@ -4,6 +4,13 @@ import { PolicyAction, PolicyDefinition, PolicyResource } from './policy.types';
 const ownResource = (context: Parameters<NonNullable<PolicyDefinition['condition']>>[0]) =>
   context.resource.ownerId === context.subject.id;
 
+const scopedResource = (context: Parameters<NonNullable<PolicyDefinition['condition']>>[0]) =>
+  !!context.subject.organizationId &&
+  !!context.subject.membershipId &&
+  context.subject.organizationStatus === 'active' &&
+  context.subject.membershipStatus === 'active' &&
+  context.resource.organizationId === context.subject.organizationId;
+
 const administrativeActions = [
   PolicyAction.CREATE,
   PolicyAction.LIST,
@@ -26,6 +33,7 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
       resource: PolicyResource.USER,
       action,
       roles: [Role.SYSTEM_ADMIN],
+      condition: scopedResource,
     })),
   {
     resource: PolicyResource.PROFILE,
@@ -44,6 +52,7 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
       resource,
       action,
       roles: [Role.SYSTEM_ADMIN, Role.MANAGER],
+      condition: scopedResource,
     })),
   ),
 ];

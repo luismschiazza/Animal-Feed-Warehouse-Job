@@ -17,10 +17,14 @@ export class AuthController {
   @Throttle({ default: { ttl: seconds(60), limit: 5 } })
   @Post('login')
   async login(@Body() _loginDto: LoginRequestDto, @Request() req) {
-    return this.authService.login(req.user, {
-      ip: req.ip,
-      userAgent: req.headers?.['user-agent'],
-    });
+    return this.authService.login(
+      req.user,
+      {
+        ip: req.ip,
+        userAgent: req.headers?.['user-agent'],
+      },
+      _loginDto.organizationId,
+    );
   }
 
   @Throttle({ default: { ttl: seconds(60), limit: 5 } })

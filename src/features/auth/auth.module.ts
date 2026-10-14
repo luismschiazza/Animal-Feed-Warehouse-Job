@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
+import { OrganizationsModule } from '@/features/organizations/organizations.module';
 import { UsersModule } from '@/features/users/users.module';
 import { AuthSessionsModule } from './auth-sessions.module';
 import { AuthController } from './controllers/auth.controller';
@@ -14,6 +15,7 @@ import { LocalStrategy } from './strategies/local.strategy';
   imports: [
     ConfigModule,
     UsersModule,
+    OrganizationsModule,
     AuthSessionsModule,
     PassportModule.register({ defaultStrategy: 'jwt', session: false }),
     JwtModule.registerAsync({
