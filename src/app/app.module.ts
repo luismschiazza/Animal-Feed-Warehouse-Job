@@ -6,6 +6,7 @@ import { ThrottlerGuard, ThrottlerModule, seconds } from '@nestjs/throttler';
 import { GenerateJwtSecretCommand } from '@/commands/generate-jwt-secret.command';
 import { SeedCommand } from '@/commands/seed.command';
 import { SeedModule } from '@/commands/seed/seed.module';
+import { AuthorizationModule } from '@/common/authorization/authorization.module';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
 import { shouldSkipThrottle } from '@/common/throttling/throttler.config';
 import { validateEnvironment } from '@/config/environment.validation';
@@ -36,6 +37,7 @@ import { AppService } from './services/app.service';
 
     DatabaseModule,
     AuthModule,
+    AuthorizationModule,
     DisciplinesModule,
     AttendanceModule,
     MeetingsModule,

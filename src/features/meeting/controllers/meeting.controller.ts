@@ -8,17 +8,14 @@ import {
   Patch,
   Post,
   Request,
-  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
 import { ApiOkResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { Role } from '@/common/enums/role.enum';
-import { RolesGuard } from '@/common/guards/roles.guard';
+import { RequirePolicies } from '@/common/authorization/policy.decorators';
+import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
-import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { MeetingDto } from '../dtos/response/meeting.dto';
 import { ResponseMeetingArrayDto } from '../dtos/response/response-meeting-array.dto';
 import { ResponseMeetingSingleDto } from '../dtos/response/response-meeting-single.dto';
@@ -30,8 +27,7 @@ import { MeetingsService } from '../services/meeting.service';
 export class MeetingsController {
   constructor(private readonly meetingsService: MeetingsService) {}
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.CREATE, resource: PolicyResource.LEGACY_MEETING })
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
@@ -42,7 +38,7 @@ export class MeetingsController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_MEETING })
   @Get()
   @ApiOkResponse({ type: ResponseMeetingArrayDto })
   async findAll() {
@@ -52,8 +48,7 @@ export class MeetingsController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_MEETING })
   @Get(':id')
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -65,8 +60,7 @@ export class MeetingsController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.UPDATE, resource: PolicyResource.LEGACY_MEETING })
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
@@ -79,8 +73,7 @@ export class MeetingsController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_MEETING })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

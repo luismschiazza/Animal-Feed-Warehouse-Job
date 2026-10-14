@@ -8,17 +8,14 @@ import {
   Patch,
   Post,
   Request,
-  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
 import { ApiOkResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { Role } from '@/common/enums/role.enum';
-import { RolesGuard } from '@/common/guards/roles.guard';
+import { RequirePolicies } from '@/common/authorization/policy.decorators';
+import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
-import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { GradeDto } from '../dtos/response/grade.dto';
 import { ResponseGradeArrayDto } from '../dtos/response/response-grade-array.dtp';
 import { ResponseGradeSingleDto } from '../dtos/response/response-grade-single.dto';
@@ -30,8 +27,7 @@ import { GradesService } from '../services/grades.service';
 export class GradesController {
   constructor(private readonly gradesService: GradesService) {}
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.CREATE, resource: PolicyResource.LEGACY_GRADE })
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseGradeSingleDto })
@@ -43,7 +39,7 @@ export class GradesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_GRADE })
   @Get()
   @ApiOkResponse({ type: ResponseGradeArrayDto })
   async findAll() {
@@ -54,7 +50,7 @@ export class GradesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_GRADE })
   @Get(':id')
   @ApiOkResponse({ type: ResponseGradeSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -66,8 +62,7 @@ export class GradesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.UPDATE, resource: PolicyResource.LEGACY_GRADE })
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseGradeSingleDto })
@@ -80,8 +75,7 @@ export class GradesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.MANAGER, Role.SYSTEM_ADMIN)
+  @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_GRADE })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseGradeSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

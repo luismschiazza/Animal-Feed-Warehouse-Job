@@ -7,17 +7,14 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
 import { ApiOkResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { Role } from '@/common/enums/role.enum';
-import { RolesGuard } from '@/common/guards/roles.guard';
+import { RequirePolicies } from '@/common/authorization/policy.decorators';
+import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
-import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { DisciplineDto } from '../dtos/response/discipline.dto';
 import { ResponseDisciplineArrayDto } from '../dtos/response/response-discipline-array.dto';
 import { ResponseDisciplineSingleDto } from '../dtos/response/response-discipline-single.dto';
@@ -29,8 +26,7 @@ import { DisciplinesService } from '../services/disciplines.service';
 export class DisciplinesController {
   constructor(private readonly disciplinesService: DisciplinesService) {}
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
+  @RequirePolicies({ action: PolicyAction.CREATE, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
@@ -41,7 +37,7 @@ export class DisciplinesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Get()
   @ApiOkResponse({ type: ResponseDisciplineArrayDto, isArray: true })
   async findAll() {
@@ -51,8 +47,7 @@ export class DisciplinesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Get(':id')
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -65,8 +60,7 @@ export class DisciplinesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
+  @RequirePolicies({ action: PolicyAction.UPDATE, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
@@ -83,8 +77,7 @@ export class DisciplinesController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SYSTEM_ADMIN, Role.MANAGER)
+  @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_DISCIPLINE })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseDisciplineSingleDto })
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

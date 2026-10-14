@@ -14,11 +14,9 @@ import {
 } from '@nestjs/common';
 import { ApiOkResponse } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { Role } from '@/common/enums/role.enum';
-import { RolesGuard } from '@/common/guards/roles.guard';
+import { Public, RequirePolicies } from '@/common/authorization/policy.decorators';
+import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
-import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { ResponseUserArrayDto } from '../dtos/response/response-user-array.dto';
 import { ResponseUserSingleDto } from '../dtos/response/response-user-single.dto';
 import { UserDto } from '../dtos/response/user.dto';
@@ -32,6 +30,7 @@ import { UsersService } from '../services/users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Public()
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Post()
   @UsePipes(new ValidationPipe({ whitelist: true }))
@@ -39,23 +38,23 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.PROFILE })
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Get('profile')
   async getProfile(@Request() req) {
     return plainToInstance(UserDto, req.user, { excludeExtraneousValues: true });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard, ExcludeOwnUserGuard)
-  @Roles(Role.SYSTEM_ADMIN)
+  @UseGuards(ExcludeOwnUserGuard)
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.USER })
   @ApiOkResponse({ type: ResponseUserArrayDto, isArray: true })
   @Get()
   async findAll(@Request() req) {
     return plainToInstance(UserDto, req.filteredUsers, { excludeExtraneousValues: true });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard, NotOwnUserGuard)
-  @Roles(Role.SYSTEM_ADMIN)
+  @UseGuards(NotOwnUserGuard)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.USER })
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Get(':id')
   async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
@@ -66,8 +65,8 @@ export class UsersController {
     return plainToInstance(UserDto, user, { excludeExtraneousValues: true });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard, NotOwnUserGuard)
-  @Roles(Role.SYSTEM_ADMIN)
+  @UseGuards(NotOwnUserGuard)
+  @RequirePolicies({ action: PolicyAction.UPDATE, resource: PolicyResource.USER })
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
@@ -82,8 +81,8 @@ export class UsersController {
     return plainToInstance(UserDto, user, { excludeExtraneousValues: true });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard, NotOwnUserGuard)
-  @Roles(Role.SYSTEM_ADMIN)
+  @UseGuards(NotOwnUserGuard)
+  @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.USER })
   @ApiOkResponse({ type: ResponseUserSingleDto })
   @Delete(':id')
   async delete(@Param('id', ValidateObjectIdPipe) id: string) {

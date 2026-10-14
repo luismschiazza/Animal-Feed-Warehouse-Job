@@ -1,5 +1,6 @@
-import { Controller, Get, INestApplication, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, INestApplication, Req, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { MongooseModule, getConnectionToken, getModelToken } from '@nestjs/mongoose';
@@ -9,10 +10,13 @@ import * as bcrypt from 'bcryptjs';
 import { Connection, Model, Types } from 'mongoose';
 import { randomUUID } from 'node:crypto';
 import * as request from 'supertest';
+import { PoliciesGuard } from '@/common/authorization/policies.guard';
+import { PolicyEngine } from '@/common/authorization/policy-engine.service';
+import { Public, RequirePolicies } from '@/common/authorization/policy.decorators';
+import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { Role } from '@/common/enums/role.enum';
 import { AuthSessionsModule } from '@/features/auth/auth-sessions.module';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
-import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { AuthSession, SessionRevocationReason } from '@/features/auth/schemas/auth-session.schema';
 import {
   AuthSessionsService,
@@ -28,9 +32,48 @@ import { UsersService } from '@/features/users/services/users.service';
 @Controller('probe')
 class ProbeController {
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.PROFILE })
   probe(@Req() req) {
     return { id: req.user.id, sessionId: req.user.sessionId, roles: req.user.roles };
+  }
+
+  @Get('admin')
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.USER })
+  admin() {
+    return { allowed: true };
+  }
+
+  @Get('undeclared')
+  undeclared() {
+    return { shouldNotExecute: true };
+  }
+
+  @Get('empty')
+  @RequirePolicies()
+  empty() {
+    return { shouldNotExecute: true };
+  }
+
+  @Get('all-required')
+  @RequirePolicies(
+    { action: PolicyAction.READ, resource: PolicyResource.PROFILE },
+    { action: PolicyAction.LIST, resource: PolicyResource.USER },
+  )
+  allRequired() {
+    return { allowed: true };
+  }
+
+  @Get('unknown-policy')
+  @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.SESSION })
+  unknownPolicy() {
+    return { shouldNotExecute: true };
+  }
+
+  @Get('conflict')
+  @Public()
+  @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.PROFILE })
+  conflicting() {
+    return { shouldNotExecute: true };
   }
 }
 
@@ -71,6 +114,8 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         UsersService,
         LocalStrategy,
         JwtStrategy,
+        PolicyEngine,
+        { provide: APP_GUARD, useClass: PoliciesGuard },
         { provide: EventEmitter2, useValue: { emit: () => undefined } },
       ],
     }).compile();
@@ -115,6 +160,32 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
   }
   const probe = (token: string) =>
     request(app.getHttpServer()).get('/probe').auth(token, { type: 'bearer' });
+
+  it('returns 401 without authentication and 403 without an explicit allowed policy', async () => {
+    await request(app.getHttpServer()).get('/probe/admin').expect(401);
+    await request(app.getHttpServer()).get('/probe/undeclared').expect(401);
+    const session = await login();
+    for (const path of ['admin', 'undeclared', 'empty', 'all-required', 'unknown-policy']) {
+      await request(app.getHttpServer())
+        .get(`/probe/${path}`)
+        .auth(session.access_token, { type: 'bearer' })
+        .expect(403);
+    }
+    await request(app.getHttpServer()).get('/probe/conflict').expect(403);
+    await users.updateOne({ _id: userId }, { $set: { roles: [Role.SYSTEM_ADMIN] } });
+    for (const path of ['admin', 'all-required']) {
+      await request(app.getHttpServer())
+        .get(`/probe/${path}`)
+        .auth(session.access_token, { type: 'bearer' })
+        .expect(200);
+    }
+    for (const path of ['undeclared', 'empty', 'unknown-policy']) {
+      await request(app.getHttpServer())
+        .get(`/probe/${path}`)
+        .auth(session.access_token, { type: 'bearer' })
+        .expect(403);
+    }
+  });
 
   it('keeps two device sessions independent through refresh and logout', async () => {
     const mobile = await login('Mobile');
