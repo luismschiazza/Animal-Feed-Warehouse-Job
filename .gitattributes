@@ -1,0 +1,3 @@
+# Keep TypeScript compatible with Prettier after Windows checkout (core.autocrlf).
+*.ts text eol=lf
+*.mts text eol=lf

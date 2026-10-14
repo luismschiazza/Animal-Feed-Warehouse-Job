@@ -5,7 +5,9 @@ PR: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/9
 
 ## Estado e cenário confirmado
 
-Implementação completa para os recursos atualmente existentes, com validação local. A integração e seu resultado são registrados na PR/issue. Esta entrega não significa que os CRUDs comerciais ou a preparação de produção estejam concluídos.
+**Integrada à main pela PR #9**, merge `ecce0c8d23ed1850ee1fc8ccece6306e8059762f`; implementação final `9584877`. Validação local repetida na main antes de encerrar a issue. Esta entrega cobre os recursos atualmente existentes, não conclui os CRUDs comerciais nem a preparação de produção.
+
+O checkout Windows revelou conversão CRLF incompatível com Prettier; `.gitattributes` fixa LF em TypeScript, sem alterar lógica. Os testes e o lint foram repetidos após normalização.
 
 O responsável confirmou que a loja nunca teve sistema: instalação nova, banco vazio, sem dados reais a migrar. O domínio escolar é código reaproveitado, não histórico da cliente. Não converter/importar seus registros nem executar os seeders escolares no banco da loja. Dados sem escopo continuam inacessíveis. Nenhum banco da aplicação foi alterado nesta execução.
 
