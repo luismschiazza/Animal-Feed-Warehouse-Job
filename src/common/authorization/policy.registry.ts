@@ -9,7 +9,8 @@ const scopedResource = (context: Parameters<NonNullable<PolicyDefinition['condit
   !!context.subject.membershipId &&
   context.subject.organizationStatus === 'active' &&
   context.subject.membershipStatus === 'active' &&
-  context.resource.organizationId === context.subject.organizationId;
+  context.resource.organizationId === context.subject.organizationId &&
+  ['active', 'locked'].includes(context.resource.accessState);
 
 const administrativeActions = [
   PolicyAction.CREATE,
@@ -33,7 +34,9 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
       resource: PolicyResource.USER,
       action,
       roles: [Role.SYSTEM_ADMIN],
-      condition: scopedResource,
+      // Tenant administrators cannot mutate/delete shared global credentials.
+      condition: (context) =>
+        scopedResource(context) && [PolicyAction.LIST, PolicyAction.READ].includes(action),
     })),
   {
     resource: PolicyResource.PROFILE,
@@ -52,7 +55,10 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
       resource,
       action,
       roles: [Role.SYSTEM_ADMIN, Role.MANAGER],
-      condition: scopedResource,
+      condition: (context) =>
+        scopedResource(context) &&
+        (![PolicyAction.UPDATE, PolicyAction.DELETE].includes(action) ||
+          context.resource.accessState === 'active'),
     })),
   ),
 ];

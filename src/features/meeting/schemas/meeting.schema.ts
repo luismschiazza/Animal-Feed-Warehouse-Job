@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { addTenantFields } from '@/common/authorization/tenant-schema';
 
 @Schema()
 export class Meeting extends Document {
@@ -29,6 +30,7 @@ export class Meeting extends Document {
 }
 
 export const MeetingSchema = SchemaFactory.createForClass(Meeting);
+addTenantFields(MeetingSchema, ['createdBy'], [], ['participants']);
 
 MeetingSchema.set('toJSON', {
   virtuals: true,

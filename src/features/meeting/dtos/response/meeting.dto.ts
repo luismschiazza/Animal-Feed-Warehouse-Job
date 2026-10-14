@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 
 export class MeetingDto {
   @ApiProperty()
@@ -24,10 +24,12 @@ export class MeetingDto {
 
   @ApiProperty({ isArray: true })
   @Expose()
+  @Transform(({ obj, key }) => obj[key]?.map((id) => id.toString()) ?? [])
   readonly participants: string[];
 
   @ApiProperty()
   @Expose()
+  @Transform(({ obj, key }) => obj[key]?.toString())
   readonly createdBy: string;
 
   @ApiProperty()

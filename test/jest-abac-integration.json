@@ -1,7 +1,7 @@
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "..",
-  "testRegex": "abac\\.integration-spec\\.ts$",
+  "testRegex": "(abac|provision)\\.integration-spec\\.ts$",
   "transform": { "^.+\\.(t|j)s$": "ts-jest" },
   "moduleNameMapper": { "^@/(.*)$": "<rootDir>/src/$1" },
   "testEnvironment": "node",

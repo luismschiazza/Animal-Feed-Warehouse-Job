@@ -1,6 +1,6 @@
 # Kanban — Autorização ABAC/PBAC e sessões
 
-**Branch atual:** `feat/issue-4-abac-tenant-isolation`
+**Implementação #4:** `feat/issue-4-abac-tenant-isolation` — PR #9
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2
 **Banco atual:** MongoDB/Mongoose  
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
@@ -14,7 +14,7 @@
 
 ## Em andamento
 
-- [ ] #04 ABAC e isolamento: organizações/vínculos e autenticação contextual implementados. Estado da conta e organização da sessão revalidados; operações de dados negadas até carregamento de atributos/filtros dos serviços. Migração e testes IDOR dos recursos pendentes. [Implementação e estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
+- [x] #04 ABAC e isolamento implementado/validado nos recursos atuais: atributos reais, filtros nos serviços, referências e notificações organizacionais, contas compartilhadas protegidas, IDOR A/B e provisionamento inicial de banco vazio. Integração e conclusão rastreadas na PR #9/issue #4. [Implementação e estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
 
 ## Em revisão
 

@@ -40,6 +40,8 @@ export interface PolicyResourceAttributes {
   type: PolicyResource;
   id?: string;
   ownerId?: string;
+  creatorId?: string;
+  accessState?: 'active' | 'locked';
   organizationId?: string;
 }
 

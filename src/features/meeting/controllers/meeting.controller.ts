@@ -32,7 +32,7 @@ export class MeetingsController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
   async create(@Request() req, @Body() dto: CreateMeetingDto) {
-    const meeting = await this.meetingsService.create(dto, req.user.id);
+    const meeting = await this.meetingsService.create(dto, req.user);
     return plainToInstance(MeetingDto, meeting, {
       excludeExtraneousValues: true,
     });
@@ -41,8 +41,8 @@ export class MeetingsController {
   @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.LEGACY_MEETING })
   @Get()
   @ApiOkResponse({ type: ResponseMeetingArrayDto })
-  async findAll() {
-    const list = await this.meetingsService.findAll();
+  async findAll(@Request() req) {
+    const list = await this.meetingsService.findAll(req.user);
     return plainToInstance(MeetingDto, list, {
       excludeExtraneousValues: true,
     });
@@ -51,8 +51,8 @@ export class MeetingsController {
   @RequirePolicies({ action: PolicyAction.READ, resource: PolicyResource.LEGACY_MEETING })
   @Get(':id')
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
-  async findOne(@Param('id', ValidateObjectIdPipe) id: string) {
-    const meeting = await this.meetingsService.findOne(id);
+  async findOne(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const meeting = await this.meetingsService.findOne(id, req.user);
     if (!meeting) throw new NotFoundException(`Meeting ${id} not found`);
 
     return plainToInstance(MeetingDto, meeting, {
@@ -64,8 +64,12 @@ export class MeetingsController {
   @Patch(':id')
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
-  async update(@Param('id', ValidateObjectIdPipe) id: string, @Body() dto: UpdateMeetingDto) {
-    const updated = await this.meetingsService.update(id, dto);
+  async update(
+    @Request() req,
+    @Param('id', ValidateObjectIdPipe) id: string,
+    @Body() dto: UpdateMeetingDto,
+  ) {
+    const updated = await this.meetingsService.update(id, dto, req.user);
     if (!updated) throw new NotFoundException(`Meeting ${id} not found`);
 
     return plainToInstance(MeetingDto, updated, {
@@ -76,8 +80,8 @@ export class MeetingsController {
   @RequirePolicies({ action: PolicyAction.DELETE, resource: PolicyResource.LEGACY_MEETING })
   @Delete(':id')
   @ApiOkResponse({ type: ResponseMeetingSingleDto })
-  async delete(@Param('id', ValidateObjectIdPipe) id: string) {
-    const deleted = await this.meetingsService.delete(id);
+  async delete(@Request() req, @Param('id', ValidateObjectIdPipe) id: string) {
+    const deleted = await this.meetingsService.delete(id, req.user);
     if (!deleted) throw new NotFoundException(`Meeting ${id} not found`);
 
     return plainToInstance(MeetingDto, deleted, {

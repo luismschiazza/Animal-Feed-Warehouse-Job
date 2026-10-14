@@ -17,7 +17,7 @@ function context(roles: Role[], resource: PolicyResource, ownerId = 'user'): Pol
       organizationStatus: 'active',
       membershipStatus: 'active',
     },
-    resource: { type: resource, ownerId, organizationId: 'organization-A' },
+    resource: { type: resource, ownerId, organizationId: 'organization-A', accessState: 'active' },
     environment: { method: 'GET' },
   };
 }
@@ -26,10 +26,12 @@ describe('PolicyEngine — explicit registry', () => {
   it.each(POLICY_DEFINITIONS.map((policy) => [policy.resource, policy.action, policy] as const))(
     'allows the explicitly configured role for %s:%s',
     (_resource, _action, policy) => {
-      expect(engine.evaluate(policy, context([policy.roles[0]], policy.resource))).toEqual({
-        allowed: true,
-        reason: 'allowed',
-      });
+      const blockedGlobalWrite =
+        policy.resource === PolicyResource.USER &&
+        [PolicyAction.UPDATE, PolicyAction.DELETE].includes(policy.action);
+      expect(engine.evaluate(policy, context([policy.roles[0]], policy.resource)).allowed).toBe(
+        !blockedGlobalWrite,
+      );
     },
   );
   it.each(POLICY_DEFINITIONS.map((policy) => [policy.resource, policy.action, policy] as const))(
@@ -80,6 +82,20 @@ describe('PolicyEngine — explicit registry', () => {
     suspended.subject.membershipStatus = 'active';
     suspended.subject.organizationStatus = 'suspended';
     expect(engine.evaluate(policy, suspended).allowed).toBe(false);
+  });
+
+  it('ownership never bypasses roles, tenant scope or a locked resource', () => {
+    const policy = { resource: PolicyResource.LEGACY_GRADE, action: PolicyAction.UPDATE };
+    const input = context([Role.MANAGER], policy.resource);
+    expect(engine.evaluate(policy, input).allowed).toBe(true);
+    input.resource.accessState = 'locked';
+    expect(engine.evaluate(policy, input).allowed).toBe(false);
+    input.resource.accessState = 'active';
+    input.subject.roles = [Role.CUSTOMER];
+    expect(engine.evaluate(policy, input).allowed).toBe(false);
+    input.subject.roles = [Role.MANAGER];
+    input.resource.organizationId = 'organization-B';
+    expect(engine.evaluate(policy, input).allowed).toBe(false);
   });
 
   it('denies inactive accounts even on own profile policies', () => {

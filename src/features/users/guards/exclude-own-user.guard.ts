@@ -11,7 +11,7 @@ export class ExcludeOwnUserGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const users = await this.usersService.findAll();
+    const users = await this.usersService.findAll(request.user);
     request.filteredUsers = users.filter((user) => user.id !== request.user.id);
     return true;
   }
