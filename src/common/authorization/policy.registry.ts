@@ -57,6 +57,18 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
     // Collection scope is the authenticated account, never a client-supplied user ID.
     condition: ownResource,
   },
+  ...[PolicyAction.REVOKE_OTHERS, PolicyAction.REVOKE_ALL].map((action) => ({
+    resource: PolicyResource.SESSION,
+    action,
+    roles: Object.values(Role),
+    condition: ownResource,
+  })),
+  ...[PolicyAction.LIST, PolicyAction.REVOKE, PolicyAction.REVOKE_ALL].map((action) => ({
+    resource: PolicyResource.ORGANIZATION_SESSION,
+    action,
+    roles: [Role.SYSTEM_ADMIN],
+    condition: scopedResource,
+  })),
   ...legacyResources.flatMap((resource) =>
     administrativeActions.map((action) => ({
       resource,

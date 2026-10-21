@@ -13,7 +13,7 @@
 
 ## Em andamento
 
-- [ ] #05 Gestão de sessões: listagem própria paginada implementada, sem credenciais; 174 unitários, 42 HTTP/sessões, 13 vínculos/provisionamento, build/lint/tipos/E2E aprovados. Revogações adicionais, administração e auditoria serão as próximas etapas; não concluir ainda. [Estudo e execução](../authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
+- [ ] #05 Implementação completa aguardando integração/validação em main na PR #10: listagem, alvos próprios, demais/todas, administração isolada e auditoria autoritativa durável. 204 unitários, 53 HTTP e 13 vínculos/provisionamento aprovados. [Estudo e execução](../authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
 
 ## Em revisão
 

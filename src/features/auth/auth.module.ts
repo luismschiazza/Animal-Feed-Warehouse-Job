@@ -3,11 +3,15 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
+import { PolicyEngine } from '@/common/authorization/policy-engine.service';
 import { OrganizationsModule } from '@/features/organizations/organizations.module';
 import { UsersModule } from '@/features/users/users.module';
 import { AuthSessionsModule } from './auth-sessions.module';
 import { AuthController } from './controllers/auth.controller';
-import { SessionsController } from './controllers/sessions.controller';
+import {
+  OrganizationSessionsController,
+  SessionsController,
+} from './controllers/sessions.controller';
 import { AuthService } from './services/auth.service';
 import { SessionManagementService } from './services/session-management.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -37,8 +41,8 @@ import { LocalStrategy } from './strategies/local.strategy';
       }),
     }),
   ],
-  providers: [AuthService, LocalStrategy, JwtStrategy, SessionManagementService],
-  controllers: [AuthController, SessionsController],
-  exports: [AuthService],
+  providers: [AuthService, LocalStrategy, JwtStrategy, SessionManagementService, PolicyEngine],
+  controllers: [AuthController, SessionsController, OrganizationSessionsController],
+  exports: [AuthService, SessionManagementService],
 })
 export class AuthModule {}

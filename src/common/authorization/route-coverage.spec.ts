@@ -3,7 +3,10 @@ import { Reflector } from '@nestjs/core';
 import { AppController } from '@/app/controllers/app.controller';
 import { AttendancesController } from '@/features/attendance/controllers/attendance.controller';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
-import { SessionsController } from '@/features/auth/controllers/sessions.controller';
+import {
+  OrganizationSessionsController,
+  SessionsController,
+} from '@/features/auth/controllers/sessions.controller';
 import { DisciplinesController } from '@/features/disciplines/controllers/disciplines.controller';
 import { GradesController } from '@/features/grades/controllers/grades.controller';
 import { MeetingsController } from '@/features/meeting/controllers/meeting.controller';
@@ -16,6 +19,7 @@ const controllers = [
   AppController,
   AuthController,
   SessionsController,
+  OrganizationSessionsController,
   UsersController,
   AttendancesController,
   DisciplinesController,
