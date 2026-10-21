@@ -23,12 +23,22 @@ import { AttendanceListener } from '@/features/attendance/listerners/attendance.
 import { AttendancesService } from '@/features/attendance/services/attendance.service';
 import { AuthSessionsModule } from '@/features/auth/auth-sessions.module';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
+import {
+  OrganizationSessionsController,
+  SessionsController,
+} from '@/features/auth/controllers/sessions.controller';
 import { AuthSession, SessionRevocationReason } from '@/features/auth/schemas/auth-session.schema';
+import {
+  RevocationAction,
+  SessionRevocation,
+} from '@/features/auth/schemas/session-revocation.schema';
 import {
   AuthSessionsService,
   MAX_SESSION_ROTATIONS,
 } from '@/features/auth/services/auth-sessions.service';
 import { AuthService } from '@/features/auth/services/auth.service';
+import { SessionManagementService } from '@/features/auth/services/session-management.service';
+import { SessionRevocationsService } from '@/features/auth/services/session-revocations.service';
 import { JwtStrategy } from '@/features/auth/strategies/jwt.strategy';
 import { LocalStrategy } from '@/features/auth/strategies/local.strategy';
 import { DisciplinesController } from '@/features/disciplines/controllers/disciplines.controller';
@@ -71,6 +81,12 @@ class ProbeController {
     return { allowed: true };
   }
 
+  @Get('session-target/:id')
+  @RequirePolicies({ action: PolicyAction.REVOKE, resource: PolicyResource.SESSION })
+  unresolvedSessionTarget() {
+    return { shouldNotExecute: true };
+  }
+
   @Get('undeclared')
   undeclared() {
     return { shouldNotExecute: true };
@@ -111,6 +127,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
   let connection: Connection;
   let sessions: AuthSessionsService;
   let sessionModel: Model<AuthSession>;
+  let revocationModel: Model<SessionRevocation>;
   let users: Model<User>;
   let organizations: Model<Organization>;
   let memberships: Model<OrganizationMembership>;
@@ -142,6 +159,8 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       controllers: [
         AuthController,
+        SessionsController,
+        OrganizationSessionsController,
         ProbeController,
         UsersController,
         DisciplinesController,
@@ -151,6 +170,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       providers: [
         AuthService,
+        SessionManagementService,
         UsersService,
         DisciplinesService,
         GradesService,
@@ -164,6 +184,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
     }).compile();
     app = module.createNestApplication();
+    app.useLogger(false);
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
     );
@@ -171,6 +192,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     connection = module.get(getConnectionToken());
     sessions = module.get(AuthSessionsService);
     sessionModel = module.get(getModelToken(AuthSession.name));
+    revocationModel = module.get(getModelToken(SessionRevocation.name));
     users = module.get(getModelToken(User.name));
     jwt = module.get(JwtService);
     organizations = module.get(getModelToken(Organization.name));
@@ -184,6 +206,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     for (const name of ['Discipline', 'Grade', 'Attendance', 'Meeting'])
       await connection.models[name].deleteMany({});
     await sessionModel.deleteMany({});
+    await revocationModel.deleteMany({});
     await users.deleteMany({});
     await memberships.deleteMany({});
     await organizations.deleteMany({});
@@ -232,6 +255,382 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     });
     return organization._id.toString();
   }
+
+  it('lists only my active sessions, identifies current SID, and never returns credentials', async () => {
+    const current = await login('Current browser');
+    const otherDevice = await login('Other browser');
+    const org = await tenant('A');
+    const organizationSession = await login('At A', org);
+    const stranger = await users.create({
+      name: 'Stranger',
+      email: 'stranger@example.com',
+      password: await bcrypt.hash(password, 4),
+      status: AccountStatus.ACTIVE,
+      roles: [Role.CUSTOMER],
+    });
+    const strangerSession = await sessions.create(stranger.id);
+    const revoked = await sessions.create(userId);
+    await sessions.revoke(revoked.sessionId, userId);
+    const expired = await sessions.create(userId);
+    await sessionModel.updateOne(
+      { sessionId: expired.sessionId },
+      { $set: { expiresAt: new Date(Date.now() - 1000) } },
+    );
+    const response = await request(app.getHttpServer())
+      .get('/auth/sessions')
+      .auth(current.access_token, { type: 'bearer' })
+      .expect(200);
+    expect(response.body.items.map((item) => item.sessionId).sort()).toEqual(
+      [current.session_id, otherDevice.session_id, organizationSession.session_id].sort(),
+    );
+    expect(
+      response.body.items.filter((item) => item.current).map((item) => item.sessionId),
+    ).toEqual([current.session_id]);
+    expect(
+      response.body.items.find((item) => item.sessionId === organizationSession.session_id)
+        .organizationId,
+    ).toBe(org);
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /currentToken|consumedTokens|tokenHash|password|rotationVersion/,
+    );
+    for (const secret of [
+      current.access_token,
+      current.refresh_token,
+      strangerSession.refreshToken,
+    ])
+      expect(JSON.stringify(response.body)).not.toContain(secret);
+    expect(response.body.nextCursor).toBeNull();
+  });
+
+  it('resolves an arbitrary session target instead of assigning it the current owner', async () => {
+    const current = await login();
+    await request(app.getHttpServer())
+      .get(`/probe/session-target/${randomUUID()}`)
+      .auth(current.access_token, { type: 'bearer' })
+      .expect(404);
+  });
+
+  it('paginates own sessions and rejects client-chosen user/organization and invalid limits', async () => {
+    const current = await login('Current');
+    const second = await login('Second');
+    const get = (query = '') =>
+      request(app.getHttpServer())
+        .get(`/auth/sessions${query}`)
+        .auth(current.access_token, { type: 'bearer' });
+    const first = await get('?limit=1').expect(200);
+    expect(first.body.items.map((item) => item.sessionId)).toEqual([second.session_id]);
+    expect(first.body.nextCursor).toMatch(/^[a-f0-9]{24}$/);
+    const next = await get(`?limit=1&before=${first.body.nextCursor}`).expect(200);
+    expect(next.body.items.map((item) => item.sessionId)).toEqual([current.session_id]);
+    expect(next.body.nextCursor).toBeNull();
+    for (const query of [
+      '?limit=0',
+      '?limit=101',
+      '?limit=1.5',
+      '?before=bad',
+      `?userId=${new Types.ObjectId()}`,
+      `?organizationId=${new Types.ObjectId()}`,
+    ])
+      await get(query).expect(400);
+    await request(app.getHttpServer()).get('/auth/sessions').expect(401);
+  });
+
+  describe('Audited revocations — real MongoDB, no replica-set dependency', () => {
+    const call = (method: 'get' | 'delete', path: string, token: string) =>
+      request(app.getHttpServer())[method](path).auth(token, { type: 'bearer' });
+    const refresh = (token: string) =>
+      request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken: token });
+    async function stranger(name = 'stranger') {
+      const account = await users.create({
+        name,
+        email: `${name}@example.com`,
+        password: await bcrypt.hash(password, 4),
+        status: AccountStatus.ACTIVE,
+        roles: [Role.CUSTOMER],
+      });
+      const enter = async (organizationId?: string) =>
+        (
+          await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({ email: account.email, password, ...(organizationId ? { organizationId } : {}) })
+            .expect(201)
+        ).body;
+      return { account, enter };
+    }
+    it('revokes one owned session, denies foreign IDs and immediately rejects both credentials', async () => {
+      const current = await login('Current'),
+        target = await login('Target'),
+        outsider = await stranger();
+      const other = await outsider.enter();
+      await call('delete', `/auth/sessions/${other.session_id}`, current.access_token).expect(404);
+      expect(await revocationModel.countDocuments()).toBe(0);
+      const result = await call(
+        'delete',
+        `/auth/sessions/${target.session_id}`,
+        current.access_token,
+      ).expect(200);
+      const event = await revocationModel.findById(result.body.revocationId).lean();
+      expect(event.action).toBe(RevocationAction.REVOKE);
+      expect(event.actorUserId.toString()).toBe(userId);
+      expect(event.actorSessionId).toBe(current.session_id);
+      expect(event.targetSessionId).toBe(target.session_id);
+      expect(event.actorOrganizationId).toBeNull();
+      await probe(target.access_token).expect(401);
+      await refresh(target.refresh_token).expect(401);
+      await probe(current.access_token).expect(200);
+      await probe(other.access_token).expect(200);
+      await call('delete', `/auth/sessions/${target.session_id}`, current.access_token).expect(404);
+      const list = await call('get', '/auth/sessions', current.access_token).expect(200);
+      expect(list.body.items.map((item) => item.sessionId)).toEqual([current.session_id]);
+      const text = JSON.stringify(event);
+      for (const secret of [target.access_token, target.refresh_token, current.refresh_token])
+        expect(text).not.toContain(secret);
+      expect(text).not.toMatch(/currentToken|consumedTokens|password|tokenHash/);
+    });
+    it('revokes others across own contexts, preserves current/other users and permits a later login', async () => {
+      const current = await login('Current'),
+        second = await login('Second');
+      const org = await tenant('A'),
+        inOrg = await login('Org', org);
+      const other = await (await stranger()).enter();
+      const result = await call('delete', '/auth/sessions/others', current.access_token).expect(
+        200,
+      );
+      expect(result.body.excludesCurrent).toBe(true);
+      for (const entry of [second, inOrg]) {
+        await probe(entry.access_token).expect(401);
+        await refresh(entry.refresh_token).expect(401);
+      }
+      await probe(current.access_token).expect(200);
+      await probe(other.access_token).expect(200);
+      const list = await call('get', '/auth/sessions?limit=1', current.access_token).expect(200);
+      expect(list.body.items.map((item) => item.sessionId)).toEqual([current.session_id]);
+      expect(list.body.nextCursor).toBeNull();
+      const later = await login('Later');
+      await probe(later.access_token).expect(200);
+      expect((await revocationModel.findById(result.body.revocationId)).excludedSessionId).toBe(
+        current.session_id,
+      );
+    });
+    it('revokes all own sessions including current, not other users; later login and audited logout work', async () => {
+      const current = await login('Current'),
+        second = await login('Second'),
+        other = await (await stranger()).enter();
+      await call('delete', '/auth/sessions', current.access_token)
+        .send({ userId: new Types.ObjectId().toString() })
+        .expect(200);
+      for (const entry of [current, second]) {
+        await probe(entry.access_token).expect(401);
+        await refresh(entry.refresh_token).expect(401);
+      }
+      await probe(other.access_token).expect(200);
+      const later = await login('Later');
+      await probe(later.access_token).expect(200);
+      await request(app.getHttpServer())
+        .post('/auth/logout')
+        .auth(later.access_token, { type: 'bearer' })
+        .expect(200);
+      const logout = await revocationModel.findOne({ targetSessionId: later.session_id });
+      expect(logout.action).toBe(RevocationAction.LOGOUT);
+      expect(logout.actorSessionId).toBe(later.session_id);
+      await probe(later.access_token).expect(401);
+    });
+    it('binds administrative lookup/revoke to A even for an account shared with B', async () => {
+      const a = await tenant('A', [Role.SYSTEM_ADMIN]),
+        b = await tenant('B', [Role.SYSTEM_ADMIN]);
+      const admin = await login('Admin A', a),
+        inB = await login('Own B', b),
+        personal = await login('Personal');
+      const target = await stranger();
+      for (const org of [a, b])
+        await memberships.create({
+          organizationId: org,
+          userId: target.account._id,
+          status: 'active',
+          roles: [Role.CUSTOMER],
+        });
+      const targetA = await target.enter(a),
+        targetB = await target.enter(b),
+        targetPersonal = await target.enter();
+      const listed = await call('get', '/auth/organization-sessions', admin.access_token).expect(
+        200,
+      );
+      expect(listed.body.items.map((item) => item.sessionId).sort()).toEqual(
+        [admin.session_id, targetA.session_id].sort(),
+      );
+      expect(listed.body.items.find((item) => item.sessionId === targetA.session_id).userId).toBe(
+        target.account.id,
+      );
+      await call('delete', `/auth/organization-sessions/${targetB.session_id}`, admin.access_token)
+        .set('X-Organization-Id', b)
+        .expect(404);
+      await call(
+        'delete',
+        `/auth/organization-sessions/${targetPersonal.session_id}`,
+        admin.access_token,
+      ).expect(404);
+      await call('get', '/auth/organization-sessions', personal.access_token).expect(403);
+      await memberships.updateOne(
+        { userId, organizationId: a },
+        { $set: { roles: [Role.MANAGER] } },
+      );
+      await call('get', '/auth/organization-sessions', admin.access_token).expect(403);
+      await call('delete', '/auth/organization-sessions', admin.access_token).expect(403);
+      await memberships.updateOne(
+        { userId, organizationId: a },
+        { $set: { roles: [Role.SYSTEM_ADMIN] } },
+      );
+      await call(
+        'delete',
+        `/auth/organization-sessions/${targetA.session_id}`,
+        admin.access_token,
+      ).expect(200);
+      await probe(targetA.access_token).expect(401);
+      for (const entry of [inB, personal, targetB, targetPersonal])
+        await probe(entry.access_token).expect(200);
+      const event = await revocationModel.findOne({ targetSessionId: targetA.session_id });
+      expect(event.actorOrganizationId.toString()).toBe(a);
+      expect(event.organizationId.toString()).toBe(a);
+      expect(event.action).toBe(RevocationAction.ADMIN_REVOKE);
+    });
+    it('organization bulk revoke includes current but never personal/B sessions or later logins', async () => {
+      const a = await tenant('A', [Role.SYSTEM_ADMIN]),
+        b = await tenant('B', [Role.SYSTEM_ADMIN]);
+      const admin = await login('A', a),
+        inB = await login('B', b),
+        personal = await login();
+      const other = await stranger();
+      await memberships.create({
+        organizationId: a,
+        userId: other.account._id,
+        status: 'active',
+        roles: [Role.CUSTOMER],
+      });
+      const targetA = await other.enter(a),
+        targetPersonal = await other.enter();
+      await call('delete', '/auth/organization-sessions', admin.access_token).expect(200);
+      for (const entry of [admin, targetA]) {
+        await probe(entry.access_token).expect(401);
+        await refresh(entry.refresh_token).expect(401);
+      }
+      for (const entry of [inB, personal, targetPersonal])
+        await probe(entry.access_token).expect(200);
+      const later = await login('New A', a);
+      await probe(later.access_token).expect(200);
+      const event = await revocationModel.findOne({ action: RevocationAction.ADMIN_ALL });
+      expect(event.organizationId.toString()).toBe(a);
+      expect(event.revokedBefore).toBeInstanceOf(Date);
+      expect(event.targetUserId).toBeUndefined();
+    });
+    it('keeps audit after physical session removal and deduplicates concurrent specific revocations', async () => {
+      const first = await login('First'),
+        second = await login('Second'),
+        target = await login('Target');
+      const responses = await Promise.all(
+        [first, second].map((entry) =>
+          call('delete', `/auth/sessions/${target.session_id}`, entry.access_token),
+        ),
+      );
+      expect(responses.every((result) => [200, 404].includes(result.status))).toBe(true);
+      const events = await revocationModel.find({ targetSessionId: target.session_id }).lean();
+      expect(events).toHaveLength(1);
+      expect([first.session_id, second.session_id]).toContain(events[0].actorSessionId);
+      await sessionModel.deleteOne({ sessionId: target.session_id });
+      expect(await revocationModel.countDocuments({ targetSessionId: target.session_id })).toBe(1);
+      expect(
+        (await revocationModel.collection.indexes()).some(
+          (index) => index.expireAfterSeconds !== undefined,
+        ),
+      ).toBe(false);
+    });
+    it('does not perform an unaudited revocation when durable insertion fails', async () => {
+      const current = await login('Current'),
+        target = await login('Target');
+      const failure = jest
+        .spyOn(revocationModel, 'create')
+        .mockRejectedValueOnce(new Error('Simulated audit write failure'));
+      try {
+        await call('delete', `/auth/sessions/${target.session_id}`, current.access_token).expect(
+          500,
+        );
+      } finally {
+        failure.mockRestore();
+      }
+      expect(await revocationModel.countDocuments()).toBe(0);
+      await probe(target.access_token).expect(200);
+      await refresh(target.refresh_token).expect(200);
+    });
+    it('can revoke the current session specifically, but rejects anonymous/invalid targets', async () => {
+      const current = await login();
+      await request(app.getHttpServer()).delete('/auth/sessions/others').expect(401);
+      await call('delete', '/auth/sessions/not-a-valid-sid', current.access_token).expect(404);
+      await call('delete', `/auth/sessions/${current.session_id}`, current.access_token).expect(
+        200,
+      );
+      await probe(current.access_token).expect(401);
+      await refresh(current.refresh_token).expect(401);
+    });
+    it('fails closed if authoritative revocation reads are unavailable', async () => {
+      const current = await login();
+      const failure = jest
+        .spyOn(app.get(SessionRevocationsService), 'assertActive')
+        .mockRejectedValueOnce(new Error('Simulated audit read failure'));
+      try {
+        await probe(current.access_token).expect(500);
+      } finally {
+        failure.mockRestore();
+      }
+      await probe(current.access_token).expect(200);
+    });
+    it('lets an A administrator revoke a suspended account context without killing its B context', async () => {
+      const a = await tenant('A', [Role.SYSTEM_ADMIN]),
+        b = await tenant('B', [Role.SYSTEM_ADMIN]);
+      const admin = await login('Admin', a),
+        target = await stranger();
+      for (const org of [a, b])
+        await memberships.create({
+          userId: target.account._id,
+          organizationId: org,
+          status: 'active',
+          roles: [Role.CUSTOMER],
+        });
+      const inA = await target.enter(a),
+        inB = await target.enter(b);
+      await users.updateOne(
+        { _id: target.account._id },
+        { $set: { status: AccountStatus.SUSPENDED } },
+      );
+      await call(
+        'delete',
+        `/auth/organization-sessions/${inA.session_id}`,
+        admin.access_token,
+      ).expect(200);
+      await users.updateOne(
+        { _id: target.account._id },
+        { $set: { status: AccountStatus.ACTIVE } },
+      );
+      await probe(inA.access_token).expect(401);
+      await probe(inB.access_token).expect(200);
+    });
+
+    it('any refresh result racing with revocation is unusable after revocation acknowledgement', async () => {
+      const current = await login('Current'),
+        target = await login('Target');
+      const [rotated, deleted] = await Promise.all([
+        refresh(target.refresh_token),
+        call('delete', `/auth/sessions/${target.session_id}`, current.access_token),
+      ]);
+      expect(deleted.status).toBe(200);
+      expect([200, 401]).toContain(rotated.status);
+      await probe(target.access_token).expect(401);
+      await refresh(target.refresh_token).expect(401);
+      if (rotated.status === 200) {
+        await probe(rotated.body.access_token).expect(401);
+        await refresh(rotated.body.refresh_token).expect(401);
+      }
+      await probe(current.access_token).expect(200);
+    });
+  });
 
   describe('ABAC resources — real controllers/services and A/B IDOR', () => {
     let a: string, b: string, tokenA: string, tokenB: string;
@@ -763,13 +1162,22 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       const results = await Promise.allSettled(
         Array.from({ length: 8 }, () => sessions.rotate(session.refreshToken)),
       );
-      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      // Exactly one CAS rotates, but replay can revoke it before credentials are returned.
+      expect(results.filter((result) => result.status === 'fulfilled').length).toBeLessThanOrEqual(
+        1,
+      );
       const saved = await sessionModel
         .findOne({ sessionId: session.sessionId })
         .select('+consumedTokens');
       expect(saved?.rotationVersion).toBe(1);
       expect(saved?.consumedTokens).toHaveLength(1);
       expect(saved?.revocationReason).toBe(SessionRevocationReason.REFRESH_REUSE);
+      expect(
+        await revocationModel.countDocuments({
+          targetSessionId: session.sessionId,
+          action: RevocationAction.REPLAY,
+        }),
+      ).toBe(1);
       await expect(sessions.findActive(session.sessionId, userId)).rejects.toThrow();
     }
   });

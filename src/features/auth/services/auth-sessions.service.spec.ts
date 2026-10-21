@@ -1,108 +1,106 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { Model, Types } from 'mongoose';
-import { AuthSession, SessionRevocationReason } from '../schemas/auth-session.schema';
+import { AuthSession } from '../schemas/auth-session.schema';
+import { RevocationAction } from '../schemas/session-revocation.schema';
 import { generateRefreshToken, parseRefreshToken } from '../tokens/refresh-token';
 import {
   AuthSessionsService,
   MAX_SESSION_ROTATIONS,
   SESSION_TTL_MS,
 } from './auth-sessions.service';
+import { SessionRevocationsService } from './session-revocations.service';
 
-// These tests check the service contract and query structure, not MongoDB atomicity.
-describe('AuthSessionsService (mocked database)', () => {
+describe('AuthSessionsService — mocked query/CAS contracts', () => {
   const userId = new Types.ObjectId().toString();
   let service: AuthSessionsService;
-  let db: {
-    create: jest.Mock;
-    findOne: jest.Mock;
-    findOneAndUpdate: jest.Mock;
-    updateOne: jest.Mock;
-  };
+  let db: Record<string, jest.Mock>;
+  let rules: { assertActive: jest.Mock; single: jest.Mock };
   const query = (result: unknown) => ({ exec: jest.fn().mockResolvedValue(result) });
-
+  const snapshot = (sessionId: string) => ({
+    sessionId,
+    userId: new Types.ObjectId(userId),
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 60_000),
+  });
   beforeEach(() => {
     db = {
       create: jest.fn().mockResolvedValue({}),
       findOne: jest.fn().mockReturnValue(query(null)),
       findOneAndUpdate: jest.fn().mockReturnValue(query(null)),
-      updateOne: jest.fn().mockReturnValue(query({ modifiedCount: 0 })),
+      updateOne: jest.fn().mockReturnValue(query({ modifiedCount: 1 })),
     };
-    service = new AuthSessionsService(db as unknown as Model<AuthSession>);
+    rules = {
+      assertActive: jest.fn().mockResolvedValue(undefined),
+      single: jest.fn().mockResolvedValue({}),
+    };
+    service = new AuthSessionsService(
+      db as unknown as Model<AuthSession>,
+      rules as unknown as SessionRevocationsService,
+    );
   });
-
-  it('creates separate sessions, persists only verifiers and bounds metadata', async () => {
+  it('creates independent bounded sessions with only refresh verifiers', async () => {
     const before = Date.now();
     const first = await service.create(userId, { ip: 'i'.repeat(200), userAgent: 'u'.repeat(600) });
     const second = await service.create(userId);
     expect(first.sessionId).not.toBe(second.sessionId);
     const saved = db.create.mock.calls[0][0];
     expect(saved.userId.toString()).toBe(userId);
-    expect(saved.currentTokenHash).toBe(parseRefreshToken(first.refreshToken)?.tokenHash);
+    expect(saved.currentTokenHash).toBe(parseRefreshToken(first.refreshToken).tokenHash);
     expect(saved).not.toHaveProperty('refreshToken');
     expect(saved.ip).toHaveLength(128);
     expect(saved.userAgent).toHaveLength(512);
     expect(saved.expiresAt.getTime()).toBeGreaterThanOrEqual(before + SESSION_TTL_MS);
     expect(first).not.toHaveProperty('tokenHash');
+    expect(rules.assertActive).toHaveBeenCalledTimes(2);
   });
-
-  it('persists the server-validated organization and rejects malformed identifiers', async () => {
+  it('persists organization as BSON and rejects malformed identifiers', async () => {
     const organizationId = new Types.ObjectId().toString();
     await service.create(userId, {}, organizationId);
     expect(db.create.mock.calls[0][0].organizationId.toString()).toBe(organizationId);
     await expect(service.create(userId, {}, 'invalid')).rejects.toThrow(UnauthorizedException);
+    await expect(service.create('invalid')).rejects.toThrow(UnauthorizedException);
     expect(db.create).toHaveBeenCalledTimes(1);
   });
-
-  it('returns no credential when persistence fails', async () => {
-    db.create.mockRejectedValue(new Error('Database unavailable'));
+  it('returns no credentials on persistence or audit-read failure', async () => {
+    db.create.mockRejectedValueOnce(new Error('Database unavailable'));
     await expect(service.create(userId)).rejects.toThrow('Database unavailable');
+    rules.assertActive.mockRejectedValueOnce(new Error('Audit unavailable'));
+    await expect(service.create(userId)).rejects.toThrow('Audit unavailable');
   });
-
-  it('rejects malformed user IDs and tokens without database operations', async () => {
-    await expect(service.create('not-an-object-id')).rejects.toThrow(UnauthorizedException);
-    await expect(service.rotate('bad-token')).rejects.toThrow(UnauthorizedException);
-    expect(db.create).not.toHaveBeenCalled();
-    expect(db.findOneAndUpdate).not.toHaveBeenCalled();
-  });
-
-  it('requires an active session belonging to the user', async () => {
-    const { sessionId } = generateRefreshToken();
-    await expect(service.findActive(sessionId, userId)).rejects.toThrow(UnauthorizedException);
+  it('requires owner, unexpired/nonrevoked row and authoritative rules', async () => {
+    const sid = generateRefreshToken().sessionId;
+    await expect(service.findActive(sid, userId)).rejects.toThrow(UnauthorizedException);
     expect(db.findOne).toHaveBeenCalledWith({
-      sessionId,
+      sessionId: sid,
       userId: new Types.ObjectId(userId),
       revokedAt: null,
       expiresAt: { $gt: expect.any(Date) },
     });
-    db.findOne.mockReturnValue(query({ sessionId }));
-    await expect(service.findActive(sessionId, userId)).resolves.toHaveProperty('sessionId');
+    db.findOne.mockReturnValue(query(snapshot(sid)));
+    await service.findActive(sid, userId);
+    expect(rules.assertActive).toHaveBeenCalled();
+    rules.assertActive.mockRejectedValue(new UnauthorizedException());
+    await expect(service.findActive(sid, userId)).rejects.toThrow(UnauthorizedException);
   });
-
-  it('revokes only an active session owned by the caller', async () => {
-    const { sessionId } = generateRefreshToken();
-    db.updateOne.mockReturnValue(query({ modifiedCount: 1 }));
-    await service.revoke(sessionId, userId);
-    expect(db.updateOne).toHaveBeenCalledWith(
-      {
-        sessionId,
-        userId: new Types.ObjectId(userId),
-        revokedAt: null,
-        expiresAt: { $gt: expect.any(Date) },
-      },
-      { $set: { revokedAt: expect.any(Date), revocationReason: SessionRevocationReason.LOGOUT } },
-    );
-    db.updateOne.mockReturnValue(query({ modifiedCount: 0 }));
-    await expect(service.revoke(generateRefreshToken().sessionId, userId)).rejects.toThrow(
-      UnauthorizedException,
-    );
+  it('logout writes an authoritative audit instead of a non-atomic two-collection revoke', async () => {
+    const sid = generateRefreshToken().sessionId,
+      row = snapshot(sid);
+    db.findOne.mockReturnValue(query(row));
+    await service.revoke(sid, userId);
+    expect(rules.single).toHaveBeenCalledWith(row, RevocationAction.LOGOUT, {
+      id: userId,
+      sessionId: sid,
+    });
+    expect(db.updateOne).not.toHaveBeenCalled();
+    rules.single.mockRejectedValue(new Error('Audit write failed'));
+    await expect(service.revoke(sid, userId)).rejects.toThrow('Audit write failed');
+    expect(db.updateOne).not.toHaveBeenCalled();
   });
-
-  it('consumes and replaces the credential in one conditional update, without extending expiration', async () => {
-    const current = generateRefreshToken();
-    const expiresAt = new Date(Date.now() + 60_000);
-    db.findOneAndUpdate.mockReturnValue(
-      query({ sessionId: current.sessionId, userId: new Types.ObjectId(userId), expiresAt }),
-    );
+  it('keeps consume/replace atomic and never extends absolute expiration', async () => {
+    const current = generateRefreshToken(),
+      row = snapshot(current.sessionId);
+    db.findOne.mockReturnValue(query(row));
+    db.findOneAndUpdate.mockReturnValue(query(row));
     const next = await service.rotate(current.refreshToken);
     const [filter, update, options] = db.findOneAndUpdate.mock.calls[0];
     expect(filter).toEqual({
@@ -118,50 +116,41 @@ describe('AuthSessionsService (mocked database)', () => {
       tokenHash: current.tokenHash,
       consumedAt: expect.any(Date),
     });
-    expect(update.$inc).toEqual({ rotationVersion: 1 });
     expect(update.$set).not.toHaveProperty('expiresAt');
-    expect(update.$set.currentTokenHash).toBe(parseRefreshToken(next.refreshToken)?.tokenHash);
+    expect(update.$set.currentTokenHash).toBe(parseRefreshToken(next.refreshToken).tokenHash);
+    expect(update.$inc).toEqual({ rotationVersion: 1 });
     expect(options).toEqual({ new: true, runValidators: true });
-    expect(next.refreshToken).not.toBe(current.refreshToken);
-    expect(next.expiresAt).toEqual(expiresAt);
-    expect(next.userId).toBe(userId);
+    expect(next.expiresAt).toEqual(row.expiresAt);
+    expect(rules.assertActive).toHaveBeenCalledTimes(2);
+  });
+  it('does not revoke on an incorrect secret or a failed CAS alone', async () => {
+    const current = generateRefreshToken();
+    db.findOne.mockReturnValueOnce(query(snapshot(current.sessionId)));
+    await expect(service.rotate(current.refreshToken)).rejects.toThrow(UnauthorizedException);
+    expect(rules.single).not.toHaveBeenCalled();
     expect(db.updateOne).not.toHaveBeenCalled();
   });
-
-  it('on CAS failure only revokes with proof of reuse or a valid credential at the rotation limit', async () => {
-    const current = generateRefreshToken();
+  it.each([
+    [RevocationAction.REPLAY, 'refresh_reuse'],
+    [RevocationAction.LIMIT, 'rotation_limit'],
+  ])('audits %s before updating the optional physical cache', async (action, reason) => {
+    const current = generateRefreshToken(),
+      row = snapshot(current.sessionId);
+    db.findOne.mockReturnValueOnce(query(row));
+    if (action === RevocationAction.LIMIT) db.findOne.mockReturnValueOnce(query(null));
+    db.findOne.mockReturnValueOnce(query(row));
     await expect(service.rotate(current.refreshToken)).rejects.toThrow(UnauthorizedException);
-    expect(db.updateOne).toHaveBeenNthCalledWith(
-      1,
-      {
-        sessionId: current.sessionId,
-        revokedAt: null,
-        expiresAt: { $gt: expect.any(Date) },
-        consumedTokens: { $elemMatch: { tokenId: current.tokenId, tokenHash: current.tokenHash } },
-      },
-      {
-        $set: {
-          revokedAt: expect.any(Date),
-          revocationReason: SessionRevocationReason.REFRESH_REUSE,
-        },
-      },
+    expect(rules.single).toHaveBeenCalledWith(row, action);
+    expect(db.updateOne).toHaveBeenCalledWith(expect.any(Object), {
+      $set: { revokedAt: expect.any(Date), revocationReason: reason },
+    });
+    expect(rules.single.mock.invocationCallOrder[0]).toBeLessThan(
+      db.updateOne.mock.invocationCallOrder[0],
     );
-    expect(db.updateOne).toHaveBeenNthCalledWith(
-      2,
-      {
-        sessionId: current.sessionId,
-        currentTokenId: current.tokenId,
-        currentTokenHash: current.tokenHash,
-        rotationVersion: { $gte: MAX_SESSION_ROTATIONS },
-        revokedAt: null,
-        expiresAt: { $gt: expect.any(Date) },
-      },
-      {
-        $set: {
-          revokedAt: expect.any(Date),
-          revocationReason: SessionRevocationReason.ROTATION_LIMIT,
-        },
-      },
-    );
+  });
+  it('rejects malformed refresh without querying', async () => {
+    await expect(service.rotate('bad-token')).rejects.toThrow(UnauthorizedException);
+    expect(db.findOne).not.toHaveBeenCalled();
+    expect(db.findOneAndUpdate).not.toHaveBeenCalled();
   });
 });

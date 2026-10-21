@@ -77,6 +77,7 @@ describe('AuthSession schema (without database)', () => {
       expect.arrayContaining([
         [expect.objectContaining({ sessionId: 1 }), expect.objectContaining({ unique: true })],
         [expect.objectContaining({ userId: 1 }), expect.any(Object)],
+        [{ userId: 1, _id: -1 }, expect.any(Object)],
         [
           expect.objectContaining({ expiresAt: 1 }),
           expect.objectContaining({ expireAfterSeconds: 0 }),

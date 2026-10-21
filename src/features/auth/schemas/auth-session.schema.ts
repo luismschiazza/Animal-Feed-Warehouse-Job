@@ -24,10 +24,10 @@ export const ConsumedRefreshTokenSchema = SchemaFactory.createForClass(ConsumedR
 
 @Schema({ collection: 'auth_sessions', timestamps: true })
 export class AuthSession {
-  @Prop({ required: true })
+  @Prop({ required: true, immutable: true })
   sessionId: string;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, immutable: true })
   userId: Types.ObjectId;
 
   // null means personal account access, not a default/global tenant.
@@ -74,6 +74,8 @@ export const AuthSessionSchema = SchemaFactory.createForClass(AuthSession);
 
 AuthSessionSchema.index({ sessionId: 1 }, { unique: true });
 AuthSessionSchema.index({ userId: 1 });
+AuthSessionSchema.index({ userId: 1, _id: -1 });
+AuthSessionSchema.index({ organizationId: 1, _id: -1 });
 // Cleanup only: request validation must still check expiresAt explicitly.
 AuthSessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 

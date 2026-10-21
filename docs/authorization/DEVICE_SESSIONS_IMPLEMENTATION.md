@@ -2,6 +2,8 @@
 
 Issue: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/2
 
+> Evolução na #5: este documento registra a entrega histórica da #2. A gestão/logout/replay/cap agora também usa regras autoritativas e auditoria durável em coleção separada. `revokedAt` sozinho não determina atividade; consulte [Gestão de sessões](SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md). O CAS e o histórico embutido de refresh permanecem.
+
 ## Estado da entrega
 
 **Concluída e integrada à main pelo [PR #7](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/7), commit cd31d07.** Issue #2 encerrada após aceite. Login, refresh, JWT e logout utilizam o novo serviço; não é uma declaração de implantação em produção.

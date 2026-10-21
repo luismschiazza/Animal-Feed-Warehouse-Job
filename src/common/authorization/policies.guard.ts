@@ -2,6 +2,7 @@ import { ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common
 import { Reflector } from '@nestjs/core';
 import { isObservable, lastValueFrom } from 'rxjs';
 import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
+import { SessionManagementService } from '@/features/auth/services/session-management.service';
 import { PolicyEngine } from './policy-engine.service';
 import { POLICIES_KEY, PUBLIC_ROUTE_KEY } from './policy.decorators';
 import { PolicyContext, PolicyRequirement, PolicyResource } from './policy.types';
@@ -13,6 +14,7 @@ export class PoliciesGuard extends JwtAuthGuard {
     private readonly reflector: Reflector,
     private readonly engine: PolicyEngine,
     private readonly resources: ScopedResourcesService,
+    private readonly sessions: SessionManagementService,
   ) {
     super();
   }
@@ -38,6 +40,10 @@ export class PoliciesGuard extends JwtAuthGuard {
     if (!requirements?.length) throw new ForbiddenException('No authorization policy declared');
     const request = context.switchToHttp().getRequest();
     for (const requirement of requirements) {
+      const sessionResource = [
+        PolicyResource.SESSION,
+        PolicyResource.ORGANIZATION_SESSION,
+      ].includes(requirement.resource);
       const ownResource =
         requirement.resource === PolicyResource.PROFILE ||
         requirement.resource === PolicyResource.SESSION;
@@ -56,7 +62,16 @@ export class PoliciesGuard extends JwtAuthGuard {
         },
         environment: { method: request.method, ip: request.ip },
       };
-      if (!ownResource) {
+      if (sessionResource) {
+        const authorization = await this.sessions.authorize(
+          requirement.resource,
+          requirement.action,
+          request.user,
+          request.params?.id,
+        );
+        policyContext.resource = authorization.attributes;
+        policyContext.subject = authorization.actor;
+      } else if (!ownResource) {
         const authorization = await this.resources.authorize(
           requirement.resource,
           requirement.action,

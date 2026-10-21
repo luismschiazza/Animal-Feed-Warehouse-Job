@@ -8,12 +8,15 @@ export enum PolicyAction {
   UPDATE = 'update',
   DELETE = 'delete',
   REVOKE = 'revoke',
+  REVOKE_OTHERS = 'revoke_others',
+  REVOKE_ALL = 'revoke_all',
 }
 
 export enum PolicyResource {
   USER = 'user',
   PROFILE = 'profile',
   SESSION = 'session',
+  ORGANIZATION_SESSION = 'organization_session',
   LEGACY_DISCIPLINE = 'legacy_discipline',
   LEGACY_ATTENDANCE = 'legacy_attendance',
   LEGACY_GRADE = 'legacy_grade',

@@ -43,7 +43,17 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 **Instalação nova:** a loja começa com banco vazio. O primeiro acesso será criado conscientemente pelo operador com `npm run bootstrap:organization`, com a API parada e as variáveis `BOOTSTRAP_*` configuradas. O comando recusa banco não vazio/já inicializado e não concede privilégios globais ou a outras empresas. Não executar seeders escolares. Nenhum provisionamento real foi feito nesta execução. Instruções e limites: [ABAC — implementação e estudo](docs/authorization/ABAC_IMPLEMENTATION_STUDY.md).
 
-Esta entrega de segurança não conclui os CRUDs comerciais nem a preparação de produção: seguem #5, #6 e o planejamento dos reforços.
+Estas entregas de segurança não concluem os CRUDs comerciais nem a preparação de produção: seguem a auditoria geral #6 e o planejamento dos reforços.
+
+### Gestão de sessões — #5 / PR #10
+
+`GET /auth/sessions` lista as próprias sessões ativas com paginação, identificação da atual e sem credenciais. `DELETE /auth/sessions/:id`, `/auth/sessions/others` e `/auth/sessions` revogam uma, as demais ou todas as próprias. A identidade e a política são revalidadas no serviço.
+
+`/auth/organization-sessions` permite ao SYSTEM_ADMIN do vínculo ativo listar/revogar apenas sessões daquela organização. Não concede controle sobre sessões pessoais ou de outra empresa de conta compartilhada.
+
+Revogações, logout, replay e limite de rotações geram registros duráveis em `auth_session_revocations`, sem tokens/hashes e sem TTL. A própria inserção é a regra autoritativa de bloqueio, sem janela de duas escritas ou exigência de replica set. Não decidir atividade olhando apenas `auth_sessions.revokedAt`. Novos logins após o corte de uma revogação em lote continuam possíveis.
+
+Validação local: 204 unitários, 53 HTTP/sessões/isolamento e 13 vínculos/provisionamento com MongoDB real, além de E2E/build/lint/tipos. Limites, endpoints, retenção e instruções: [estudo e execução](docs/authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
 
 ### Papéis atuais
 
