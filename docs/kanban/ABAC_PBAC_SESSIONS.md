@@ -1,6 +1,6 @@
 # Kanban — Autorização ABAC/PBAC e sessões
 
-**Implementação atual #5:** `feat/issue-5-session-management`
+**Última entrega #5:** PR #10 integrada à `main` (76f1852)
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2
 **Banco atual:** MongoDB/Mongoose  
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
@@ -13,7 +13,7 @@
 
 ## Em andamento
 
-- [ ] #05 Implementação completa aguardando integração/validação em main na PR #10: listagem, alvos próprios, demais/todas, administração isolada e auditoria autoritativa durável. 204 unitários, 53 HTTP e 13 vínculos/provisionamento aprovados. [Estudo e execução](../authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
+_Nenhum item; próxima entrega é #06._
 
 ## Em revisão
 
@@ -21,6 +21,7 @@ _Nenhum item._
 
 ## Concluído
 
+- [x] #05 Gestão de sessões: PR #10 integrada (76f1852), validada em main com 204 unitários, 53 HTTP/sessões/isolamento e 13 vínculos/provisionamento. Listagem, alvos próprios, demais/todas, administração organizacional e auditoria autoritativa durável. [Estudo e execução](../authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
 - [x] #04 ABAC e isolamento: PR #9 integrada (ecce0c8), issue CLOSED/Done após validação em main. Filtros, atributos, relações/notificações, contas compartilhadas e provisionamento inicial controlado. [Estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
 - [x] #01 Papéis empresariais e matriz inicial: issue encerrada e código integrado pelo PR #7.
 - [x] #02 Sessões por dispositivo: PR #7 integrado à main (cd31d07), issue encerrada após validação. [Relatório técnico](../authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).

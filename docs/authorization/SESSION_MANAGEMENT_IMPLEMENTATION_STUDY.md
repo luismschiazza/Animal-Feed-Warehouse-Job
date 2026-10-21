@@ -6,7 +6,7 @@ Branch de implementação: `feat/issue-5-session-management`.
 
 ## Estado real
 
-Implementação completa nos recursos previstos, validada localmente; integração/encerramento serão registrados na PR/issue após repetir a validação na main. Não confundir esta entrega com a auditoria geral da #6 ou com preparação completa de produção.
+**Concluída e integrada à main pela PR #10**, merge `76f18523fadbf4944f4d97dfb1d022b17585cfea`. Implementação final `893aa37`; etapa inicial `0624e1b`. Validação completa repetida na main: 204 unitários, 53 HTTP, 13 vínculos/provisionamento, 1 E2E, build/lint/tipos/diff --check aprovados. Issue/Project atualizados após integração validada. Não confundir esta entrega com a auditoria geral da #6 ou com preparação completa de produção.
 
 Pasta local: `C:\Users\Usuário\Desktop\system-SASS-racoes`. Instalação futura da loja será nova/banco vazio. Nenhum banco da aplicação foi alterado, nenhuma conta real provisionada, nenhum email real enviado.
 
