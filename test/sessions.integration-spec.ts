@@ -9,10 +9,21 @@ import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { Connection, Model, Types } from 'mongoose';
 import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import * as request from 'supertest';
+import { exportAudit } from '@/common/audit/audit-export';
+import { verifyAuditIndexes } from '@/common/audit/audit-indexes';
+import { AuditQueryService } from '@/common/audit/audit-query.service';
+import { AuditController } from '@/common/audit/audit.controller';
+import { AuditEvent, SecurityAuditRecord } from '@/common/audit/security-audit.schema';
+import { SecurityAuditService } from '@/common/audit/security-audit.service';
 import { PoliciesGuard } from '@/common/authorization/policies.guard';
 import { PolicyEngine } from '@/common/authorization/policy-engine.service';
 import { Public, RequirePolicies } from '@/common/authorization/policy.decorators';
+import { POLICY_DEFINITIONS } from '@/common/authorization/policy.registry';
 import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ScopedResourcesModule } from '@/common/authorization/scoped-resources.module';
 import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
@@ -159,6 +170,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       controllers: [
         AuthController,
+        AuditController,
         SessionsController,
         OrganizationSessionsController,
         ProbeController,
@@ -170,6 +182,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       providers: [
         AuthService,
+        AuditQueryService,
         SessionManagementService,
         UsersService,
         DisciplinesService,
@@ -183,6 +196,12 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         { provide: EventEmitter2, useValue: { emit: () => undefined } },
       ],
     }).compile();
+    // Test operator provisions only the two audit collections in the generated DB.
+    for (const name of [SecurityAuditRecord.name, SessionRevocation.name]) {
+      const model = module.get<Model<any>>(getModelToken(name));
+      await model.createCollection();
+      await model.createIndexes();
+    }
     app = module.createNestApplication();
     app.useLogger(false);
     app.useGlobalPipes(
@@ -205,6 +224,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
   beforeEach(async () => {
     for (const name of ['Discipline', 'Grade', 'Attendance', 'Meeting'])
       await connection.models[name].deleteMany({});
+    await connection.models.SecurityAuditRecord.deleteMany({});
     await sessionModel.deleteMany({});
     await revocationModel.deleteMany({});
     await users.deleteMany({});
@@ -255,6 +275,389 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     });
     return organization._id.toString();
   }
+
+  describe('General security audit — persisted events and isolated readers', () => {
+    const auditModel = () => connection.models.SecurityAuditRecord as Model<SecurityAuditRecord>;
+    const readAudit = (token: string, path = '/audit/own-events') =>
+      request(app.getHttpServer()).get(path).auth(token, { type: 'bearer' });
+
+    it('persists login/failure/refresh/policy decisions and correlates authoritative logout/replay without credentials', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'session@example.com', password: 'wrong-secret' })
+        .expect(401);
+      await request(app.getHttpServer()).post('/auth/login').send({}).expect(401);
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .set('X-Request-Id', 'forged-client-trace')
+        .send({ email: 'session@example.com', password })
+        .expect(201);
+      const current = response.body;
+      const loginRow = await auditModel().findOne({ event: AuditEvent.LOGIN, result: 'allowed' });
+      expect(loginRow.requestId).toBe(response.headers['x-request-id']);
+      expect(loginRow.requestId).not.toBe('forged-client-trace');
+      expect(loginRow.actorUserId.toString()).toBe(userId);
+      await request(app.getHttpServer())
+        .get('/probe/admin')
+        .auth(current.access_token, { type: 'bearer' })
+        .expect(403);
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refreshToken: current.refresh_token })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refreshToken: current.refresh_token })
+        .expect(401);
+      const replay = await revocationModel.findOne({ targetSessionId: current.session_id });
+      expect(replay.action).toBe(RevocationAction.REPLAY);
+      expect(replay.initiator).toBe('system');
+      expect(replay.requestId).toMatch(/^[a-f0-9-]{36}$/);
+      const next = await login();
+      const logout = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .auth(next.access_token, { type: 'bearer' })
+        .expect(200);
+      expect((await revocationModel.findOne({ targetSessionId: next.session_id })).requestId).toBe(
+        logout.headers['x-request-id'],
+      );
+      const rows = await auditModel().find().lean();
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: AuditEvent.LOGIN, result: 'denied' }),
+          expect.objectContaining({ event: AuditEvent.REFRESH, result: 'allowed' }),
+          expect.objectContaining({ event: AuditEvent.AUTHORIZATION, result: 'denied' }),
+        ]),
+      );
+      const json = JSON.stringify(rows);
+      for (const secret of [password, 'wrong-secret', current.access_token, current.refresh_token])
+        expect(json).not.toContain(secret);
+      expect(json).not.toMatch(
+        /currentTokenHash|consumedTokens|password|access_token|refreshToken/,
+      );
+    });
+
+    it('never attributes an invalid bearer payload to its claimed actor or organization', async () => {
+      const org = await tenant('A');
+      const fake = jwt.sign({
+        sub: userId,
+        sid: randomUUID(),
+        organizationId: org,
+        roles: [Role.SYSTEM_ADMIN],
+      });
+      await probe(fake).expect(401);
+      const row = await auditModel().findOne({ event: AuditEvent.AUTHENTICATION });
+      expect(row.actorUserId).toBeNull();
+      expect(row.organizationId).toBeNull();
+      expect(row.sessionId).toBeNull();
+      const personal = await login();
+      const own = await readAudit(personal.access_token).expect(200);
+      expect(own.body.items.some((item) => item.eventId === row.id)).toBe(false);
+    });
+
+    it('filters A/B/personal streams and revalidates AUDITOR privileges; never trusts scope query/headers', async () => {
+      const a = await tenant('A', [Role.AUDITOR]),
+        b = await tenant('B', [Role.SYSTEM_ADMIN]);
+      const inA = await login('A', a),
+        inB = await login('B', b),
+        personal = await login();
+      const rows = await readAudit(inA.access_token, '/audit/organization-events')
+        .set('X-Organization-Id', b)
+        .expect(200);
+      expect(rows.body.items.length).toBeGreaterThan(0);
+      expect(rows.body.items.every((item) => item.organizationId === a)).toBe(true);
+      expect(JSON.stringify(rows.body)).not.toContain(inB.session_id);
+      await readAudit(personal.access_token, '/audit/organization-events').expect(403);
+      await readAudit(inA.access_token, `/audit/organization-events?organizationId=${b}`).expect(
+        400,
+      );
+      const own = await readAudit(personal.access_token).expect(200);
+      expect(own.body.items.some((item) => item.organizationId === a)).toBe(true);
+      expect(own.body.items.some((item) => item.organizationId === b)).toBe(true);
+      await memberships.updateOne(
+        { organizationId: a, userId },
+        { $set: { roles: [Role.MANAGER] } },
+      );
+      await readAudit(inA.access_token, '/audit/organization-events').expect(403);
+      const actor = await app.get(AuthService).validateSession(userId, inA.session_id);
+      await expect(
+        app.get(AuditQueryService).list(PolicyResource.AUDIT_EVENT, {
+          ...actor,
+          sessionId: inA.session_id,
+          roles: [Role.SYSTEM_ADMIN],
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('does not leak another account through own audit and denies anonymous/forged reader inputs', async () => {
+      await users.create({
+        name: 'Other',
+        email: 'other@example.com',
+        password: await bcrypt.hash(password, 4),
+        roles: [Role.CUSTOMER],
+        status: AccountStatus.ACTIVE,
+      });
+      const other = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'other@example.com', password })
+        .expect(201);
+      const me = await login();
+      const rows = await readAudit(me.access_token).expect(200);
+      expect(JSON.stringify(rows.body)).not.toContain(other.body.session_id);
+      await request(app.getHttpServer()).get('/audit/own-events').expect(401);
+      await readAudit(me.access_token, '/audit/own-events?userId=000000000000000000000001').expect(
+        400,
+      );
+      for (const query of ['limit=101', 'limit=1.5', 'before=bad', 'before[$ne]=null'])
+        await readAudit(me.access_token, '/audit/own-events?' + query).expect(400);
+    });
+
+    it('redacts cross-context actor organization/session in canonical revocations visible to A', async () => {
+      const a = await tenant('A', [Role.SYSTEM_ADMIN]),
+        b = await tenant('B', [Role.SYSTEM_ADMIN]);
+      const adminA = await login('A admin', a),
+        targetA = await login('A target', a),
+        inB = await login('B', b);
+      await request(app.getHttpServer())
+        .delete(`/auth/sessions/${targetA.session_id}`)
+        .auth(inB.access_token, { type: 'bearer' })
+        .expect(200);
+      const rows = await readAudit(adminA.access_token, '/audit/organization-events').expect(200);
+      const canonical = rows.body.items.find((item) => item.targetSessionId === targetA.session_id);
+      expect(canonical.source).toBe('revocation');
+      expect(canonical.actorOrganizationId).toBeNull();
+      expect(canonical.sessionId).toBeNull();
+      expect(JSON.stringify(rows.body)).not.toContain(b);
+      expect(JSON.stringify(rows.body)).not.toContain(inB.session_id);
+    });
+
+    it('paginates both sources without duplicates and projects out malicious/raw extra fields', async () => {
+      const me = await login();
+      const old = await sessions.create(userId);
+      await sessions.revoke(old.sessionId, userId);
+      for (let n = 0; n < 6; n++) await probe(me.access_token).expect(200);
+      await auditModel().collection.updateMany(
+        {},
+        { $set: { password: 'UNSAFE_FIELD', currentTokenHash: 'UNSAFE_HASH' } },
+      );
+      await revocationModel.collection.updateMany({}, { $set: { refreshToken: 'UNSAFE_TOKEN' } });
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      let foundRevocation = false;
+      for (let n = 0; n < 20; n++) {
+        const response = await readAudit(
+          me.access_token,
+          '/audit/own-events?limit=2' + (cursor ? '&before=' + cursor : ''),
+        ).expect(200);
+        expect(JSON.stringify(response.body)).not.toMatch(
+          /UNSAFE_|password|currentTokenHash|refreshToken/,
+        );
+        for (const row of response.body.items) {
+          seen.push(row.eventId + '.' + row.source);
+          if (row.source === 'revocation') foundRevocation = true;
+        }
+        cursor = response.body.nextCursor;
+        if (!cursor) break;
+      }
+      expect(cursor).toBeNull();
+      expect(foundRevocation).toBe(true);
+      expect(new Set(seen).size).toBe(seen.length);
+      await sessionModel.deleteOne({ sessionId: old.sessionId });
+      expect(
+        (await app.get(SecurityAuditService).page({ kind: 'user', id: userId }, 100)).items.some(
+          (item) => item.source === 'revocation',
+        ),
+      ).toBe(true);
+    });
+
+    it('persists allow/deny decisions for every registered policy (global account writes deliberately have no allow)', async () => {
+      const org = await tenant('Matrix', [Role.SYSTEM_ADMIN]);
+      const loginPair = await login('Matrix', org);
+      const identity = await app.get(AuthService).validateSession(userId, loginPair.session_id);
+      const audit = app.get(SecurityAuditService),
+        engine = app.get(PolicyEngine);
+      for (const policy of POLICY_DEFINITIONS) {
+        const actor = { ...identity, sessionId: loginPair.session_id, roles: [policy.roles[0]] };
+        const resource = {
+          type: policy.resource,
+          ownerId: userId,
+          organizationId: org,
+          accessState: 'active' as const,
+        };
+        const allowed = engine.evaluate(policy, {
+          subject: actor,
+          resource,
+          environment: { method: policy.action },
+        }).allowed;
+        const prohibited =
+          policy.resource === PolicyResource.USER &&
+          [PolicyAction.UPDATE, PolicyAction.DELETE].includes(policy.action);
+        expect(allowed).toBe(!prohibited);
+        await audit.record(
+          AuditEvent.AUTHORIZATION,
+          allowed ? 'allowed' : 'denied',
+          'service',
+          actor,
+          policy,
+        );
+        expect(
+          engine.evaluate(policy, {
+            subject: { ...actor, roles: [] },
+            resource,
+            environment: { method: policy.action },
+          }).allowed,
+        ).toBe(false);
+        await audit.record(AuditEvent.AUTHORIZATION, 'denied', 'service', actor, policy);
+        expect(
+          await auditModel().countDocuments({
+            resource: policy.resource,
+            action: policy.action,
+            result: 'denied',
+          }),
+        ).toBeGreaterThan(0);
+        if (!prohibited)
+          expect(
+            await auditModel().countDocuments({
+              resource: policy.resource,
+              action: policy.action,
+              result: 'allowed',
+            }),
+          ).toBeGreaterThan(0);
+      }
+    });
+
+    it('keeps concurrent persisted decisions and request IDs distinct', async () => {
+      const me = await login();
+      const responses = await Promise.all(
+        Array.from({ length: 12 }, () => probe(me.access_token).expect(200)),
+      );
+      const ids = responses.map((response) => response.headers['x-request-id']);
+      expect(new Set(ids).size).toBe(12);
+      expect(
+        await auditModel().countDocuments({
+          requestId: { $in: ids },
+          event: AuditEvent.AUTHORIZATION,
+          phase: 'guard',
+          result: 'allowed',
+        }),
+      ).toBe(12);
+      await auditModel().updateOne(
+        { requestId: ids[0] },
+        { $set: { result: 'denied', requestId: 'tampered' } },
+      );
+      expect(await auditModel().countDocuments({ requestId: ids[0], result: 'allowed' })).toBe(1);
+    });
+
+    it('fails closed on real MongoDB audit insert rejection, returning no login/refresh credentials or business write', async () => {
+      const me = await login();
+      const org = await tenant('A', [Role.MANAGER]);
+      const manager = await login('Manager', org);
+      await connection.db.command({
+        collMod: 'security_audit_events',
+        validator: { $jsonSchema: { required: ['field_that_the_writer_never_supplies'] } },
+        validationLevel: 'strict',
+      });
+      try {
+        const loginFailure = await request(app.getHttpServer())
+          .post('/auth/login')
+          .send({ email: 'session@example.com', password })
+          .expect(503);
+        const refreshFailure = await request(app.getHttpServer())
+          .post('/auth/refresh')
+          .send({ refreshToken: me.refresh_token })
+          .expect(503);
+        for (const response of [loginFailure, refreshFailure])
+          expect(JSON.stringify(response.body)).not.toMatch(
+            /access_token|refresh_token|mongodb|field_that/,
+          );
+        await request(app.getHttpServer())
+          .post('/disciplines')
+          .auth(manager.access_token, { type: 'bearer' })
+          .send({ name: 'Must not be written' })
+          .expect(503);
+        expect(await connection.models.Discipline.countDocuments({})).toBe(0);
+      } finally {
+        await connection.db.command({ collMod: 'security_audit_events', validator: {} });
+      }
+      await probe(manager.access_token).expect(200);
+    });
+
+    it('does not grant audit results on a reader error or log/return raw diagnostic secrets', async () => {
+      const me = await login();
+      const failure = jest.spyOn(auditModel(), 'aggregate').mockReturnValueOnce({
+        read: () => ({
+          exec: async () => {
+            throw new Error('mongodb://operator:NeverExpose@host jwt=NeverExpose');
+          },
+        }),
+      } as any);
+      try {
+        const response = await readAudit(me.access_token).expect(503);
+        expect(JSON.stringify(response.body)).not.toMatch(/NeverExpose|mongodb/);
+      } finally {
+        failure.mockRestore();
+      }
+      const accountRead = jest
+        .spyOn(app.get(UsersService), 'findOneByEmailWithPassword')
+        .mockRejectedValueOnce(new Error('password=NeverExpose'));
+      try {
+        const response = await request(app.getHttpServer())
+          .post('/auth/login')
+          .send({ email: 'session@example.com', password })
+          .expect(500);
+        expect(JSON.stringify(response.body)).not.toContain('NeverExpose');
+        expect(JSON.stringify(await auditModel().find().lean())).not.toContain('NeverExpose');
+      } finally {
+        accountRead.mockRestore();
+      }
+    });
+
+    it('refuses missing/unsafe audit indexes without destructive automatic repair', async () => {
+      const model = auditModel();
+      await model.collection.createIndex(
+        { occurredAt: 1 },
+        { name: 'test_unsafe_ttl', expireAfterSeconds: 86400 },
+      );
+      try {
+        await expect(verifyAuditIndexes(model)).rejects.toThrow('operator review');
+      } finally {
+        await model.collection.dropIndex('test_unsafe_ttl');
+      }
+      await model.collection.dropIndex('requestId_1');
+      try {
+        await expect(verifyAuditIndexes(model)).rejects.toThrow('operator review');
+      } finally {
+        await model.createIndexes();
+      }
+      await expect(verifyAuditIndexes(model)).resolves.toBeUndefined();
+      await expect(verifyAuditIndexes(revocationModel)).resolves.toBeUndefined();
+    });
+
+    it('exports a scoped JSONL archive with verified digest and never deletes authoritative rules', async () => {
+      const me = await login();
+      const old = await sessions.create(userId);
+      await sessions.revoke(old.sessionId, userId);
+      const directory = await mkdtemp(join(tmpdir(), 'issue6-audit-'));
+      const destination = join(directory, 'archive.jsonl');
+      try {
+        await exportAudit(app.get(SecurityAuditService), { kind: 'user', id: userId }, destination);
+        const bytes = await readFile(destination);
+        const manifest = JSON.parse(await readFile(destination + '.manifest.json', 'utf8'));
+        expect(manifest.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+        expect(manifest.count).toBe(bytes.toString().trim().split('\n').length);
+        expect(manifest.deletionPerformed).toBe(false);
+        expect(bytes.toString()).not.toContain(me.access_token);
+        expect(bytes.toString()).not.toContain(me.refresh_token);
+        await expect(
+          exportAudit(app.get(SecurityAuditService), { kind: 'user', id: userId }, destination),
+        ).rejects.toThrow();
+        expect(await revocationModel.countDocuments({ targetSessionId: old.sessionId })).toBe(1);
+        await expect(sessions.findActive(old.sessionId, userId)).rejects.toThrow();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+  });
 
   it('lists only my active sessions, identifies current SID, and never returns credentials', async () => {
     const current = await login('Current browser');

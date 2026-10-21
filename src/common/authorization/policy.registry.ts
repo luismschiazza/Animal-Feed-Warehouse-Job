@@ -28,6 +28,18 @@ const legacyResources = [
 
 // Central, server-controlled registry. No wildcard, role inheritance or admin bypass.
 export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
+  {
+    resource: PolicyResource.AUDIT_EVENT,
+    action: PolicyAction.LIST,
+    roles: [Role.SYSTEM_ADMIN, Role.AUDITOR],
+    condition: scopedResource,
+  },
+  {
+    resource: PolicyResource.OWN_AUDIT_EVENT,
+    action: PolicyAction.LIST,
+    roles: Object.values(Role),
+    condition: ownResource,
+  },
   ...administrativeActions
     .filter((action) => action !== PolicyAction.CREATE)
     .map((action) => ({

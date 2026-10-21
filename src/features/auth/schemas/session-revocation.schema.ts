@@ -20,6 +20,8 @@ export enum RevocationAction {
 // Append-only authoritative rules AND audit. Deliberately NO TTL or delete API.
 @Schema({
   collection: 'auth_session_revocations',
+  autoCreate: false,
+  autoIndex: false,
   timestamps: { createdAt: true, updatedAt: false },
 })
 export class SessionRevocation {
@@ -39,6 +41,7 @@ export class SessionRevocation {
   @Prop({ type: Date }) revokedBefore?: Date;
   @Prop({ type: String }) excludedSessionId?: string;
   @Prop({ type: Date, required: true }) occurredAt: Date;
+  @Prop({ type: String, immutable: true }) requestId?: string;
   createdAt: Date;
 }
 export const SessionRevocationSchema = SchemaFactory.createForClass(SessionRevocation);

@@ -7,13 +7,11 @@
 
 ## Backlog
 
-- [ ] #06 Criar auditoria de autenticação e decisões de autorização.
-- [ ] #07 Reforçar login, senha e recuperação de conta.
-- [ ] #08 Cobertura de testes unitários, integração e cenários de isolamento.
+_As quatro próximas issues serão criadas no GitHub após o aceite da #6: contas/sessões, CI/CD, ambientes/recuperação e funcionários/vínculos. Números reais ainda não atribuídos._
 
 ## Em andamento
 
-_Nenhum item; próxima entrega é #06._
+- [ ] #06 Auditoria geral: eventos duráveis, consultas próprias/organizacionais, operação sem purga e testes de regressão/ACL. Implementação em validação final. [Estudo](../authorization/SECURITY_AUDIT_IMPLEMENTATION_STUDY.md).
 
 ## Em revisão
 
@@ -27,7 +25,7 @@ _Nenhum item._
 - [x] #02 Sessões por dispositivo: PR #7 integrado à main (cd31d07), issue encerrada após validação. [Relatório técnico](../authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
 - [x] #03 Infraestrutura PBAC: entrega pelo PR #8 aprovada pelo responsável; integração e aceite rastreados na issue. 121 testes unitários, 12 integração/HTTP com MongoDB e 1 E2E aprovados. [Implementação e estudo](../authorization/PBAC_IMPLEMENTATION_STUDY.md).
 
-Históricos reconciliados por merge sem force-push, preservando commits e LICENSE. #07 e #08 são itens de planejamento local, não issues numeradas confirmadas nesta revisão. Reforços adicionais serão planejados em conjunto após #6, antes dos CRUDs.
+Históricos reconciliados por merge sem force-push, preservando commits e LICENSE. Os antigos rótulos locais #07/#08 não eram issues reais; substituídos pelo planejamento das quatro próximas entregas autorizado pelo responsável. Reforços adicionais serão planejados em conjunto após #6, antes dos CRUDs.
 
 ## Critérios de aceite globais
 

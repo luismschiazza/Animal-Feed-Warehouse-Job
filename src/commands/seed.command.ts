@@ -50,11 +50,11 @@ export class SeedCommand extends CommandRunner {
           break;
 
         default:
-          this.logger.error(`Unknown module: ${options.module}`);
+          this.logger.error('Unknown demonstration module; use a documented module name.');
           break;
       }
-    } catch (error) {
-      this.logger.error('Seed command failed:', error);
+    } catch {
+      this.logger.error('Seed command failed; inspect the isolated demonstration environment.');
     }
   }
 

@@ -2,6 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
+import { SecurityAuditService } from '@/common/audit/security-audit.service';
 import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 import { OrganizationAccessService } from '@/features/organizations/services/organization-access.service';
@@ -33,6 +34,7 @@ describe('AuthService', () => {
     const module = await Test.createTestingModule({
       providers: [
         AuthService,
+        { provide: SecurityAuditService, useValue: { record: jest.fn(), result: () => 'denied' } },
         { provide: UsersService, useValue: users },
         { provide: JwtService, useValue: jwt },
         { provide: AuthSessionsService, useValue: sessions },

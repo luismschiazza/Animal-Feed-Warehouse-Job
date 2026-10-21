@@ -43,7 +43,7 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 **Instalação nova:** a loja começa com banco vazio. O primeiro acesso será criado conscientemente pelo operador com `npm run bootstrap:organization`, com a API parada e as variáveis `BOOTSTRAP_*` configuradas. O comando recusa banco não vazio/já inicializado e não concede privilégios globais ou a outras empresas. Não executar seeders escolares. Nenhum provisionamento real foi feito nesta execução. Instruções e limites: [ABAC — implementação e estudo](docs/authorization/ABAC_IMPLEMENTATION_STUDY.md).
 
-Estas entregas de segurança não concluem os CRUDs comerciais nem a preparação de produção: seguem a auditoria geral #6 e o planejamento dos reforços.
+Estas entregas de segurança não concluem os CRUDs comerciais nem a preparação de produção. As próximas fundações incluem reforços de contas/sessões, CI/CD, ambientes/recuperação e vínculos empresariais, sem implementação antecipada.
 
 ### Gestão de sessões — #5 / PR #10
 
@@ -54,6 +54,14 @@ Estas entregas de segurança não concluem os CRUDs comerciais nem a preparaçã
 Revogações, logout, replay e limite de rotações geram registros duráveis em `auth_session_revocations`, sem tokens/hashes e sem TTL. A própria inserção é a regra autoritativa de bloqueio, sem janela de duas escritas ou exigência de replica set. Não decidir atividade olhando apenas `auth_sessions.revokedAt`. Novos logins após o corte de uma revogação em lote continuam possíveis.
 
 Validação local: 204 unitários, 53 HTTP/sessões/isolamento e 13 vínculos/provisionamento com MongoDB real, além de E2E/build/lint/tipos. Limites, endpoints, retenção e instruções: [estudo e execução](docs/authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
+
+### Auditoria geral — #6
+
+Login/falhas, refresh e decisões de autenticação/autorização são persistidos em `security_audit_events`, sem credenciais, payloads ou mensagens de erro brutas. A fonte autoritativa `auth_session_revocations` continua separada e preservada. Correlação é gerada pelo servidor e retornada em `X-Request-Id`; falha de auditoria bloqueia a operação, não libera acesso.
+
+`GET /audit/own-events` consulta eventos da própria identidade; `GET /audit/organization-events` exige AUDITOR ou SYSTEM_ADMIN de vínculo ativo na organização atual. As rotas usam o prefixo global `/api` e o envelope `payload/message` existente. Paginação até 100, filtros server-side, projeção/mapper positivos e união das duas fontes sem copiar as regras.
+
+Sem TTL/purga nas fontes de auditoria. Antes da primeira inicialização em cada ambiente, operador deve executar `npm run audit:initialize` com `AUDIT_MONGO_URL` explícita antes da API; runtime verifica índices e deve usar privilégios mínimos por coleção, sem poder alterar/apagar auditoria. `npm run audit:export` produz arquivo JSONL/manifest sem remover eventos. Instruções, configuração, riscos de falha/retenção e estudo: [Auditoria geral](docs/authorization/SECURITY_AUDIT_IMPLEMENTATION_STUDY.md).
 
 ### Papéis atuais
 
@@ -132,6 +140,8 @@ docker compose up -d mongo-db
 ```
 
 Ou execute uma instância local do MongoDB.
+
+Antes do primeiro start, prepare as coleções de auditoria com `npm run audit:initialize`, informando `AUDIT_MONGO_URL` explicitamente para o banco local escolhido. O comando não usa `.env`/`MONGO_URL` por fallback e não apaga eventos. Para a instalação real, planeje primeiro o provisionamento inicial com API parada; não use o seeder escolar. Veja o [procedimento de auditoria](docs/authorization/SECURITY_AUDIT_IMPLEMENTATION_STUDY.md).
 
 ### 4. Inicie a API
 

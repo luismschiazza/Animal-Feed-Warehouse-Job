@@ -3,6 +3,8 @@ import { InjectConnection } from '@nestjs/mongoose';
 import { Connection, Model, Types } from 'mongoose';
 import { AuthSessionsService } from '@/features/auth/services/auth-sessions.service';
 import { OrganizationAccessService } from '@/features/organizations/services/organization-access.service';
+import { AuditEvent } from '../audit/security-audit.schema';
+import { SecurityAuditService } from '../audit/security-audit.service';
 import { AccountStatus } from '../enums/account-status.enum';
 import { PolicyEngine } from './policy-engine.service';
 import {
@@ -32,6 +34,7 @@ export class ScopedResourcesService {
     private readonly sessions: AuthSessionsService,
     private readonly organizations: OrganizationAccessService,
     private readonly engine: PolicyEngine,
+    private readonly audit: SecurityAuditService,
   ) {}
 
   private model(resource: PolicyResource): Model<any> {
@@ -89,7 +92,34 @@ export class ScopedResourcesService {
     subject: PolicySubject,
     id?: string,
   ) {
-    const actor = await this.current(subject);
+    let actor: PolicySubject;
+    try {
+      actor = await this.current(subject);
+      const result = await this.authorizeResolved(resource, action, actor, id);
+      await this.audit.record(AuditEvent.AUTHORIZATION, 'allowed', 'service', actor, {
+        resource,
+        action,
+        targetId: id,
+      });
+      return result;
+    } catch (error) {
+      await this.audit.record(
+        AuditEvent.AUTHORIZATION,
+        this.audit.result(error),
+        'service',
+        actor,
+        { resource, action, targetId: id },
+      );
+      throw error;
+    }
+  }
+
+  private async authorizeResolved(
+    resource: PolicyResource,
+    action: PolicyAction,
+    actor: PolicySubject,
+    id?: string,
+  ) {
     let row: any;
     const attributes: PolicyResourceAttributes = {
       type: resource,

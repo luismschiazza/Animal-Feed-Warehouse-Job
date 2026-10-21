@@ -33,10 +33,10 @@ export class MailService {
         html,
       });
 
-      this.logger.log(`Email sent to ${JSON.stringify(options.to)} (subject: ${options.subject})`);
-    } catch (error) {
-      this.logger.error('Error sending the email:', error.stack);
-      throw error;
+      this.logger.log('Email delivery completed');
+    } catch {
+      this.logger.error('Email delivery failed');
+      throw new Error('Email delivery failed');
     }
   }
 }

@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { Model, Mongoose, Types } from 'mongoose';
+import { AuditContext } from '@/common/audit/audit-context.service';
 import { AuthSession } from '../schemas/auth-session.schema';
 import {
   RevocationAction,
@@ -36,7 +37,10 @@ describe('Authoritative revocation/audit records — mocked persistence', () => 
         .fn()
         .mockImplementation(async ([record]) => [{ ...record, _id: new Types.ObjectId() }]),
     };
-    service = new SessionRevocationsService(db as unknown as Model<SessionRevocation>);
+    service = new SessionRevocationsService(
+      db as unknown as Model<SessionRevocation>,
+      new AuditContext(),
+    );
   });
   it('checks specific/user/organization predicates and excludes the current SID only for others', async () => {
     await service.assertActive(session);
@@ -145,7 +149,8 @@ describe('Authoritative revocation/audit records — mocked persistence', () => 
     });
   });
   it('validates scope/action, initiator, target and allowed exclusion before persistence', async () => {
-    const model = new Mongoose().model('RevocationSchemaValidation', SessionRevocationSchema);
+    const schema = SessionRevocationSchema.clone().set('autoCreate', false).set('autoIndex', false);
+    const model = new Mongoose().model('RevocationSchemaValidation', schema);
     const valid = {
       scope: RevocationScope.USER,
       action: RevocationAction.OTHERS,
