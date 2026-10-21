@@ -2,7 +2,7 @@
 
 Issue: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/6
 Branch: `feat/issue-6-security-audit`, a partir de main `ac77e50`.
-Estado: implementação e validação local; integração e encerramento serão registrados após aceite na main.
+**Estado: CONCLUÍDA, integrada à main pela [PR #11](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/11), issue CLOSED / Kanban Done.** Merge `07e47d0652e65849f1bc809e8bb3c26168207ab9`; implementação `cb5a7a81ca91d20655331e055616a8b5c67fc4e0`. Validação completa repetida na main antes de encerrar. Evidência: https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/6#issuecomment-6324269841
 
 ## 1. Problema e limites do escopo
 
@@ -223,11 +223,11 @@ A união aplica filtro equivalente também às revogações. Limitar primeiro e 
 
 ## 8. Validação e reprodução
 
-Validação final na feature branch: **218 unitários / 19 suítes, 65 HTTP/sessões/PBAC/ABAC, 13 vínculos/provisionamento, 1 E2E existente**, build/lint/TypeScript incluindo testes/diff --check aprovados. Adicionalmente: smoke do AppModule REAL e smoke de ACLs em MongoDB autenticado, incluindo o CLI exportador com usuário que possui SOMENTE find. Não são testes simulados de persistência.
+Validação final na feature branch e REPETIDA na main integrada: **218 unitários / 19 suítes, 65 HTTP/sessões/PBAC/ABAC, 13 vínculos/provisionamento, 1 E2E existente**, build/lint/TypeScript incluindo testes/diff --check aprovados. Adicionalmente: smoke do AppModule REAL e smoke de ACLs em MongoDB autenticado, incluindo o CLI exportador com usuário que possui SOMENTE find. Não são testes simulados de persistência.
 
 Um aviso de handle pendente na primeira rodada unitária levou à revisão: o modelo usado apenas para validar schema foi clonado sem autoCreate/autoIndex, sem abrir operações de conexão. Unidade com --detectOpenHandles e rodada completa posterior passaram sem o aviso. A revisão também explicitou DDL sempre desabilitada nas duas schemas e no modelo do CLI leitor, evitando depender da ordem de carregamento de NODE_ENV/dotenv.
 
-Comandos operacionais: inicializador executado duas vezes no mesmo banco sandbox, sem apagar dados; CLI vazio e CLI com leitor restrito exercitados. Integração/encerramento dependem de repetir o marco na main.
+Comandos operacionais: inicializador executado duas vezes no mesmo banco sandbox, sem apagar dados; CLI vazio e CLI com leitor restrito exercitados. Marco repetido na main com todos os resultados aprovados, antes do encerramento da #6. Bancos/usuários/papéis de teste, arquivos temporários e ambos containers dedicados foram removidos. Banco real não foi acessado.
 
 ```text
 npm test -- --runInBand
@@ -255,4 +255,4 @@ Novos cenários: identidade não comprovada não atribuída, correlação concor
 - Prazos legais, exclusão/anonymização aprovada, WORM, criptografia/backups e restauração requerem operação futura. Não apagar regra autoritativa aplicável.
 - Swagger é middleware fora dos guards; revisar exposição em staging/prod na issue de ambientes. Esta issue não cria autenticação fictícia para Swagger.
 - Não são inventados eventos históricos anteriores à implantação. Política/snapshot não são prova de entrega da resposta ou transação comercial.
-- Após #6: quatro issues de planejamento (contas/sessões Ready, demais Backlog); nenhuma dessas quatro implementada. CRUDs comerciais continuam posteriores às fundações e ao planejamento aprovado.
+- Próximas issues REAIS criadas no mesmo projeto: [#12 Contas/sessões](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) **Ready para estudo/aprovação de políticas**, [#13 CI/CD](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/13), [#14 Ambientes/recuperação](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14), [#15 Funcionários/vínculos](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) **Backlog**. Cada corpo contém requisitos, escopo/fora, aceite, testes, dependências/riscos, checklist e estudo exigido; espelhados em docs/issues. Nenhuma implementada. Os rótulos propostos #7–#10 não foram confundidos com os números reais compartilhados com PRs. CRUDs comerciais continuam posteriores às fundações e ao planejamento aprovado.

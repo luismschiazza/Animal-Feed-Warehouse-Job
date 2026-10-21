@@ -193,13 +193,20 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 2. sessões independentes por dispositivo e rotação segura de refresh token — implementado e validado;
 3. motor de políticas PBAC — implementado e validado;
 4. ABAC e isolamento por organização/recurso — implementado e validado nos recursos atuais, com provisionamento inicial controlado;
-5. auditoria e testes de segurança;
-6. produtos, categorias, marcas e unidades;
-7. locais, saldo e movimentações de estoque;
-8. fornecedores, compras e recebimento;
-9. clientes, vendas e caixa;
-10. financeiro, relatórios e alertas;
-11. NFe/NFC-e e demais integrações fiscais.
+5. gestão de sessões — integrada e validada (#5 / PR #10);
+6. auditoria geral e regressões de segurança — integrada e validada (#6 / PR #11);
+7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — Ready para estudo; políticas/limites dependem de acordo com responsável;
+8. [CI/CD e qualidade (#13)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/13) — Backlog;
+9. [ambientes, observabilidade e recuperação (#14)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — Backlog;
+10. [funcionários e vínculos (#15)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — Backlog;
+11. produtos, categorias, marcas e unidades;
+12. locais, saldo e movimentações de estoque;
+13. fornecedores, compras e recebimento;
+14. clientes, vendas e caixa;
+15. financeiro, relatórios e alertas;
+16. NFe/NFC-e e demais integrações fiscais.
+
+As quatro novas issues foram apenas planejadas, não implementadas. Dependências e aceite estão nos corpos das issues e em `docs/issues/`.
 
 ## Qualidade e segurança
 
