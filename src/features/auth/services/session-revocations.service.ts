@@ -1,6 +1,8 @@
 import { Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, PipelineStage, Types } from 'mongoose';
+import { AuditContext } from '@/common/audit/audit-context.service';
+import { verifyAuditIndexes } from '@/common/audit/audit-indexes';
 import { AuthSession } from '../schemas/auth-session.schema';
 import {
   RevocationAction,
@@ -19,10 +21,11 @@ export interface RevocationActor {
 export class SessionRevocationsService implements OnModuleInit {
   constructor(
     @InjectModel(SessionRevocation.name) private readonly records: Model<SessionRevocation>,
+    private readonly context: AuditContext,
   ) {}
 
   async onModuleInit() {
-    await this.records.init();
+    await verifyAuditIndexes(this.records);
   }
 
   private oid(value: string) {
@@ -148,6 +151,7 @@ export class SessionRevocationsService implements OnModuleInit {
     const record = {
       ...rule,
       occurredAt: new Date(),
+      requestId: this.context.get().requestId,
       initiator: actor ? 'user' : 'system',
       actorUserId: actor ? this.oid(actor.id) : null,
       actorSessionId: actor?.sessionId ?? null,

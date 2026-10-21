@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { Model, Types } from 'mongoose';
+import { SecurityAuditService } from '@/common/audit/security-audit.service';
 import { PolicyEngine } from '@/common/authorization/policy-engine.service';
 import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
@@ -142,6 +143,7 @@ describe('SessionManagementService — revalidation and policy boundary', () => 
       sessions as unknown as AuthSessionsService,
       rules as unknown as SessionRevocationsService,
       new PolicyEngine(),
+      { record: jest.fn(), result: () => 'denied' } as unknown as SecurityAuditService,
     );
   });
   it('revalidates server identity and applies owner-scoped listing', async () => {

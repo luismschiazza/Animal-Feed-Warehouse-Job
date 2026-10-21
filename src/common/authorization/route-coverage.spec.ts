@@ -1,6 +1,7 @@
 import { METHOD_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 import { AppController } from '@/app/controllers/app.controller';
+import { AuditController } from '@/common/audit/audit.controller';
 import { AttendancesController } from '@/features/attendance/controllers/attendance.controller';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
 import {
@@ -17,6 +18,7 @@ import { PolicyRequirement } from './policy.types';
 
 const controllers = [
   AppController,
+  AuditController,
   AuthController,
   SessionsController,
   OrganizationSessionsController,

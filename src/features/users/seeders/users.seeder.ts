@@ -31,9 +31,9 @@ export class UsersSeeder {
         updatedAt: new Date(),
       });
 
-      this.logger.log(`Created wildcard user: ${wildcardUserEmail} / ${wildcardUserPassword}`);
+      this.logger.log('Legacy demonstration user created; credentials intentionally not logged.');
     } else {
-      this.logger.log(`Wildcard user already exists: ${wildcardUserEmail}`);
+      this.logger.log('Legacy demonstration user already exists.');
     }
 
     const amount = limit && limit > 0 ? limit : 25;

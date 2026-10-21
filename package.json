@@ -11,6 +11,8 @@
   },
   "scripts": {
     "cli": "ts-node -r tsconfig-paths/register src/main-cli.ts",
+    "audit:initialize": "ts-node -r tsconfig-paths/register src/commands/audit-initialize.script.ts",
+    "audit:export": "ts-node -r tsconfig-paths/register src/commands/audit-export.script.ts",
     "bootstrap:organization": "ts-node -r tsconfig-paths/register src/commands/bootstrap-organization.script.ts",
     "build": "nest build",
     "start": "nest start",
@@ -25,6 +27,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:audit-operations": "ts-node -r tsconfig-paths/register test/audit-operations.smoke.ts",
+    "test:security-root": "ts-node -r tsconfig-paths/register test/security-root.smoke.ts",
     "test:sessions": "jest --config ./test/jest-sessions-integration.json --runInBand",
     "test:abac": "jest --config ./test/jest-abac-integration.json --runInBand"
   },

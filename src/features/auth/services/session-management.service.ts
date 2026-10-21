@@ -1,4 +1,6 @@
 import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { AuditEvent } from '@/common/audit/security-audit.schema';
+import { SecurityAuditService } from '@/common/audit/security-audit.service';
 import { PolicyEngine } from '@/common/authorization/policy-engine.service';
 import {
   PolicyAction,
@@ -18,6 +20,7 @@ export class SessionManagementService {
     private readonly sessions: AuthSessionsService,
     private readonly revocations: SessionRevocationsService,
     private readonly engine: PolicyEngine,
+    private readonly audit: SecurityAuditService,
   ) {}
 
   async authorize(
@@ -26,11 +29,39 @@ export class SessionManagementService {
     actor: PolicySubject,
     id?: string,
   ) {
-    if (!actor?.id || !actor.sessionId) throw new UnauthorizedException('Invalid session context');
-    const identity = await this.auth.validateSession(actor.id, actor.sessionId);
-    if (identity.organizationId !== actor.organizationId)
-      throw new UnauthorizedException('Invalid session context');
-    const subject: PolicySubject = { ...identity, sessionId: actor.sessionId };
+    let subject: PolicySubject;
+    try {
+      if (!actor?.id || !actor.sessionId)
+        throw new UnauthorizedException('Invalid session context');
+      const identity = await this.auth.validateSession(actor.id, actor.sessionId);
+      if (identity.organizationId !== actor.organizationId)
+        throw new UnauthorizedException('Invalid session context');
+      subject = { ...identity, sessionId: actor.sessionId };
+      const result = await this.authorizeResolved(resource, action, subject, id);
+      await this.audit.record(AuditEvent.AUTHORIZATION, 'allowed', 'service', subject, {
+        resource,
+        action,
+        targetId: id,
+      });
+      return result;
+    } catch (error) {
+      await this.audit.record(
+        AuditEvent.AUTHORIZATION,
+        this.audit.result(error),
+        'service',
+        subject,
+        { resource, action, targetId: id },
+      );
+      throw error;
+    }
+  }
+
+  private async authorizeResolved(
+    resource: PolicyResource,
+    action: PolicyAction,
+    subject: PolicySubject,
+    id?: string,
+  ) {
     if (![PolicyResource.SESSION, PolicyResource.ORGANIZATION_SESSION].includes(resource))
       throw new ForbiddenException('Session access denied');
     const attributes: PolicyResourceAttributes = {

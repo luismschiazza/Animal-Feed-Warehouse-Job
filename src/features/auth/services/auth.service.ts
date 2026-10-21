@@ -1,6 +1,8 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { AuditEvent } from '@/common/audit/security-audit.schema';
+import { SecurityAuditService } from '@/common/audit/security-audit.service';
 import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 import { MembershipStatus } from '@/features/organizations/schemas/organization-membership.schema';
@@ -33,12 +35,33 @@ export class AuthService {
     private jwtService: JwtService,
     private sessions: AuthSessionsService,
     private organizations: OrganizationAccessService,
+    private audit: SecurityAuditService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<AuthenticatedUser | null> {
-    const user = await this.usersService.findOneByEmailWithPassword(email.trim().toLowerCase());
-    if (!user || user.status !== AccountStatus.ACTIVE) return null;
-    if (!(await bcrypt.compare(password, user.password))) return null;
+    let user: User;
+    let valid = false;
+    try {
+      if (typeof email === 'string' && typeof password === 'string') {
+        const candidate = await this.usersService.findOneByEmailWithPassword(
+          email.trim().toLowerCase(),
+        );
+        if (
+          candidate?.status === AccountStatus.ACTIVE &&
+          (await bcrypt.compare(password, candidate.password))
+        ) {
+          user = candidate;
+          valid = true;
+        }
+      }
+    } catch (error) {
+      await this.audit.record(AuditEvent.LOGIN, 'error', 'auth');
+      throw error;
+    }
+    if (!valid) {
+      await this.audit.record(AuditEvent.LOGIN, 'denied', 'auth');
+      return null;
+    }
     return this.personalIdentity(user);
   }
 
@@ -55,22 +78,43 @@ export class AuthService {
   }
 
   async login(user: AuthenticatedUser, metadata: SessionMetadata = {}, organizationId?: string) {
-    // Re-read after password validation: do not persist a session using stale account state.
-    const account = await this.requireActiveAccount(user.id);
-    const access =
-      organizationId === undefined
-        ? undefined
-        : await this.organizations.requireActiveMembership(account.id, organizationId);
-    const identity = access ? this.tenantIdentity(account, access) : this.personalIdentity(account);
-    const session = await this.sessions.create(account.id, metadata, access?.organizationId);
-    return this.issueTokenPair(identity, session.sessionId, session.refreshToken);
+    let actor: AuthenticatedUser & { sessionId?: string };
+    let pair: ReturnType<AuthService['issueTokenPair']>;
+    try {
+      // Re-read after password validation; do not audit a requested tenant as verified.
+      const account = await this.requireActiveAccount(user.id);
+      actor = this.personalIdentity(account);
+      const access =
+        organizationId === undefined
+          ? undefined
+          : await this.organizations.requireActiveMembership(account.id, organizationId);
+      const identity = access ? this.tenantIdentity(account, access) : actor;
+      const session = await this.sessions.create(account.id, metadata, access?.organizationId);
+      actor = { ...identity, sessionId: session.sessionId };
+      pair = this.issueTokenPair(identity, session.sessionId, session.refreshToken);
+    } catch (error) {
+      await this.audit.record(AuditEvent.LOGIN, this.audit.result(error), 'auth', actor);
+      throw error;
+    }
+    // No credentials leave the service before the audit is acknowledged.
+    await this.audit.record(AuditEvent.LOGIN, 'allowed', 'auth', actor);
+    return pair;
   }
 
   async refresh(refreshToken: string) {
-    const session = await this.sessions.rotate(refreshToken);
-    // Recheck current account/membership after the atomic rotation; failure issues no credentials.
-    const user = await this.validateSession(session.userId, session.sessionId);
-    return this.issueTokenPair(user, session.sessionId, session.refreshToken);
+    let actor: AuthenticatedUser & { sessionId: string };
+    let pair: ReturnType<AuthService['issueTokenPair']>;
+    try {
+      const session = await this.sessions.rotate(refreshToken);
+      const user = await this.validateSession(session.userId, session.sessionId);
+      actor = { ...user, sessionId: session.sessionId };
+      pair = this.issueTokenPair(user, session.sessionId, session.refreshToken);
+    } catch (error) {
+      await this.audit.record(AuditEvent.REFRESH, this.audit.result(error), 'auth');
+      throw error;
+    }
+    await this.audit.record(AuditEvent.REFRESH, 'allowed', 'auth', actor);
+    return pair;
   }
 
   async logout(userId: string, sessionId: string) {

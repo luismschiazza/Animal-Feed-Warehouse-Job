@@ -1,8 +1,16 @@
-import { ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { isObservable, lastValueFrom } from 'rxjs';
 import { JwtAuthGuard } from '@/features/auth/guards/jwt-auth.guard';
 import { SessionManagementService } from '@/features/auth/services/session-management.service';
+import { AuditQueryService } from '../audit/audit-query.service';
+import { AuditEvent } from '../audit/security-audit.schema';
+import { SecurityAuditService } from '../audit/security-audit.service';
 import { PolicyEngine } from './policy-engine.service';
 import { POLICIES_KEY, PUBLIC_ROUTE_KEY } from './policy.decorators';
 import { PolicyContext, PolicyRequirement, PolicyResource } from './policy.types';
@@ -15,6 +23,8 @@ export class PoliciesGuard extends JwtAuthGuard {
     private readonly engine: PolicyEngine,
     private readonly resources: ScopedResourcesService,
     private readonly sessions: SessionManagementService,
+    private readonly audit: SecurityAuditService,
+    private readonly auditQueries: AuditQueryService,
   ) {
     super();
   }
@@ -26,64 +36,92 @@ export class PoliciesGuard extends JwtAuthGuard {
       POLICIES_KEY,
       targets,
     );
-    if (isPublic) {
-      if (requirements !== undefined)
-        throw new ForbiddenException('Conflicting authorization metadata');
-      return true;
-    }
-    // Passport validates signature, expiry and the session before policy evaluation.
-    const authentication = super.canActivate(context);
-    const authenticated = isObservable(authentication)
-      ? await lastValueFrom(authentication)
-      : await authentication;
-    if (!authenticated) return false;
-    if (!requirements?.length) throw new ForbiddenException('No authorization policy declared');
     const request = context.switchToHttp().getRequest();
-    for (const requirement of requirements) {
-      const sessionResource = [
-        PolicyResource.SESSION,
-        PolicyResource.ORGANIZATION_SESSION,
-      ].includes(requirement.resource);
-      const ownResource =
-        requirement.resource === PolicyResource.PROFILE ||
-        requirement.resource === PolicyResource.SESSION;
-      const policyContext: PolicyContext = {
-        subject: request.user,
-        // Owned profile/logout use the authenticated identity. Other attributes are
-        // resolved below from scoped DB records or validated collection scope.
-        resource: {
-          type: requirement.resource,
-          id: ownResource
-            ? requirement.resource === PolicyResource.SESSION
-              ? request.user.sessionId
-              : request.user.id
-            : request.params?.id,
-          ownerId: ownResource ? request.user.id : undefined,
-        },
-        environment: { method: request.method, ip: request.ip },
-      };
-      if (sessionResource) {
-        const authorization = await this.sessions.authorize(
+    if (isPublic && requirements === undefined) return true;
+    if (isPublic) {
+      await this.audit.record(AuditEvent.AUTHORIZATION, 'denied', 'guard');
+      throw new ForbiddenException('Conflicting authorization metadata');
+    }
+    try {
+      const authentication = super.canActivate(context);
+      const authenticated = isObservable(authentication)
+        ? await lastValueFrom(authentication)
+        : await authentication;
+      if (!authenticated) throw new UnauthorizedException();
+    } catch (error) {
+      await this.audit.record(AuditEvent.AUTHENTICATION, this.audit.result(error), 'guard');
+      throw error;
+    }
+    let requirement: PolicyRequirement;
+    try {
+      if (!requirements?.length) throw new ForbiddenException('No authorization policy declared');
+      for (requirement of requirements) {
+        const ownResource = [PolicyResource.PROFILE, PolicyResource.SESSION].includes(
           requirement.resource,
-          requirement.action,
-          request.user,
-          request.params?.id,
         );
-        policyContext.resource = authorization.attributes;
-        policyContext.subject = authorization.actor;
-      } else if (!ownResource) {
-        const authorization = await this.resources.authorize(
-          requirement.resource,
-          requirement.action,
-          request.user,
-          request.params?.id,
+        const policyContext: PolicyContext = {
+          subject: request.user,
+          resource: {
+            type: requirement.resource,
+            id: ownResource
+              ? requirement.resource === PolicyResource.SESSION
+                ? request.user.sessionId
+                : request.user.id
+              : request.params?.id,
+            ownerId: ownResource ? request.user.id : undefined,
+          },
+          environment: { method: request.method, ip: request.ip },
+        };
+        if (
+          [PolicyResource.SESSION, PolicyResource.ORGANIZATION_SESSION].includes(
+            requirement.resource,
+          )
+        ) {
+          const resolved = await this.sessions.authorize(
+            requirement.resource,
+            requirement.action,
+            request.user,
+            request.params?.id,
+          );
+          policyContext.resource = resolved.attributes;
+          policyContext.subject = resolved.actor;
+        } else if (
+          [PolicyResource.AUDIT_EVENT, PolicyResource.OWN_AUDIT_EVENT].includes(
+            requirement.resource,
+          )
+        ) {
+          const resolved = await this.auditQueries.authorize(requirement.resource, request.user);
+          policyContext.resource = resolved.attributes;
+          policyContext.subject = resolved.actor;
+        } else if (!ownResource) {
+          const resolved = await this.resources.authorize(
+            requirement.resource,
+            requirement.action,
+            request.user,
+            request.params?.id,
+          );
+          policyContext.resource = resolved.attributes;
+          policyContext.subject = resolved.actor;
+        }
+        if (!this.engine.evaluate(requirement, policyContext).allowed)
+          throw new ForbiddenException('Insufficient permissions');
+        await this.audit.record(
+          AuditEvent.AUTHORIZATION,
+          'allowed',
+          'guard',
+          policyContext.subject,
+          { ...requirement, targetId: request.params?.id },
         );
-        policyContext.resource = authorization.attributes;
-        policyContext.subject = authorization.actor;
       }
-      if (!this.engine.evaluate(requirement, policyContext).allowed) {
-        throw new ForbiddenException('Insufficient permissions');
-      }
+    } catch (error) {
+      await this.audit.record(
+        AuditEvent.AUTHORIZATION,
+        this.audit.result(error),
+        'guard',
+        request.user,
+        { ...requirement, targetId: request.params?.id },
+      );
+      throw error;
     }
     return true;
   }

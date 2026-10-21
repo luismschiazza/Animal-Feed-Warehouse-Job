@@ -12,6 +12,8 @@ export const MongooseConfig = async (
 
   return {
     uri,
+    // Security state must not use a lagging secondary via a URI override.
+    readPreference: 'primary',
     retryAttempts: 30,
     retryDelay: 2000,
     serverSelectionTimeoutMS: 5000,

@@ -7,7 +7,8 @@ export class UserListener {
   private readonly logger = new Logger(UserListener.name);
 
   @OnEvent('user.created')
-  handleUserCreated(user: User) {
-    this.logger.log(`User created: ${user.email} (roles: ${user.roles.join(', ')})`);
+  handleUserCreated(_user: User) {
+    void _user;
+    this.logger.log('User created');
   }
 }

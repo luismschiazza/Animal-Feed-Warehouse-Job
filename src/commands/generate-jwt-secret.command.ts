@@ -44,9 +44,7 @@ export class GenerateJwtSecretCommand extends CommandRunner {
 
     fs.writeFileSync(envPath, updated);
 
-    this.logger.log('New JWT secret generated successfully!');
-    this.logger.log('Value:');
-    this.logger.log(newSecret);
+    this.logger.log('New JWT secret saved to .env; value intentionally not logged.');
   }
 
   @Option({

@@ -1,7 +1,7 @@
 # Matriz inicial de papéis e permissões
 
 > Issue: [#1](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/1)  
-> Estado: base RBAC e infraestrutura PBAC implementadas e validadas. Entrega PBAC pelo PR #8. Isolamento ABAC será aplicado na #4, após autorização do responsável.
+> Estado: fundações RBAC/PBAC/ABAC e sessões #1–#5 integradas. Auditoria geral #6 acrescenta consultas próprias e por organização. Recursos comerciais abaixo continuam candidatos, não permissões já implementadas.
 
 ## Princípios
 
@@ -37,7 +37,8 @@
 | Vendas e clientes | `SALES_ASSOCIATE`, `CASHIER`, `MANAGER` | Organização e relação com venda/caixa |
 | Caixa e pagamentos | `CASHIER`, `FINANCIAL_ANALYST`, `MANAGER` | Caixa atribuída, turno e estado de fechamento |
 | Financeiro | `FINANCIAL_ANALYST`, `MANAGER`, `AUDITOR` (somente leitura) | Organização e período contábil |
-| Auditoria | `AUDITOR`, `MANAGER`, `SYSTEM_ADMIN` | Organização e escopo permitido |
+| Auditoria de segurança (atual) | `AUDITOR`, `SYSTEM_ADMIN` | Vínculo ativo e organização atual; MANAGER/OWNER sozinhos não recebem acesso |
+| Eventos da própria identidade (atual) | Papel conhecido | Somente titular autenticado; não concede dados de outros usuários |
 | Conta do cliente | `CUSTOMER` | Somente proprietário autenticado |
 
 ## Compatibilidade temporária

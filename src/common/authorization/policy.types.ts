@@ -14,6 +14,8 @@ export enum PolicyAction {
 
 export enum PolicyResource {
   USER = 'user',
+  AUDIT_EVENT = 'audit_event',
+  OWN_AUDIT_EVENT = 'own_audit_event',
   PROFILE = 'profile',
   SESSION = 'session',
   ORGANIZATION_SESSION = 'organization_session',
