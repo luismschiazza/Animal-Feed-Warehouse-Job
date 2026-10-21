@@ -63,7 +63,7 @@ Nesta entrega, a coleção `auth_session_revocations` é a fonte autoritativa: i
 - Schema valida combinação de ação/escopo, ator, alvo e exclusão. Não há payload público para criar regras arbitrárias.
 - Sem token, senha, verificador ou histórico de refresh nos eventos. Falha de replay/limite é iniciador system, não alegação de humano autenticado.
 - Leituras autoritativas e listagens usam primary para não depender de atraso de réplica na visibilidade da revogação.
-- Falha de gravação não produz revogação silenciosa nem resposta de sucesso. Falha de leitura não concede autenticação: operação falha fechada.
+- Se a escrita falha antes de persistir, não há revogação sem evento nem resposta de sucesso. Timeout/perda de conexão pode deixar a confirmação incerta: a regra pode ter sido gravada com seu efeito/auditoria juntos; consultar o estado e não prometer rollback. Falha de leitura não concede autenticação: operação falha fechada.
 
 `auth_sessions.revokedAt/revocationReason` continua sendo um marcador físico/compatibilidade para bloqueios automáticos anteriores. Gestão/logout não dependem de atualizar esse cache. **Não consultar apenas revokedAt para decidir que uma sessão está ativa:** também verificar as regras. No replay/cap, grava-se a regra antes do cache; se a atualização do cache falhar, a regra continua bloqueando a família com auditoria durável.
 
