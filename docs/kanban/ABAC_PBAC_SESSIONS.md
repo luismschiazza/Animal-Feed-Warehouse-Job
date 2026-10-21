@@ -1,20 +1,19 @@
 # Kanban — Autorização ABAC/PBAC e sessões
 
-**Implementação #4:** `feat/issue-4-abac-tenant-isolation` — PR #9
+**Implementação atual #5:** `feat/issue-5-session-management`
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2
 **Banco atual:** MongoDB/Mongoose  
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
 
 ## Backlog
 
-- [ ] #05 Criar gestão de sessões: listar, revogar uma e revogar todas.
 - [ ] #06 Criar auditoria de autenticação e decisões de autorização.
 - [ ] #07 Reforçar login, senha e recuperação de conta.
 - [ ] #08 Cobertura de testes unitários, integração e cenários de isolamento.
 
 ## Em andamento
 
-- [x] #04 ABAC e isolamento implementado/validado nos recursos atuais: atributos reais, filtros nos serviços, referências e notificações organizacionais, contas compartilhadas protegidas, IDOR A/B e provisionamento inicial de banco vazio. Integração e conclusão rastreadas na PR #9/issue #4. [Implementação e estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
+- [ ] #05 Gestão de sessões: listagem própria paginada implementada, sem credenciais; 174 unitários, 42 HTTP/sessões, 13 vínculos/provisionamento, build/lint/tipos/E2E aprovados. Revogações adicionais, administração e auditoria serão as próximas etapas; não concluir ainda. [Estudo e execução](../authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
 
 ## Em revisão
 
@@ -22,6 +21,7 @@ _Nenhum item._
 
 ## Concluído
 
+- [x] #04 ABAC e isolamento: PR #9 integrada (ecce0c8), issue CLOSED/Done após validação em main. Filtros, atributos, relações/notificações, contas compartilhadas e provisionamento inicial controlado. [Estudo](../authorization/ABAC_IMPLEMENTATION_STUDY.md).
 - [x] #01 Papéis empresariais e matriz inicial: issue encerrada e código integrado pelo PR #7.
 - [x] #02 Sessões por dispositivo: PR #7 integrado à main (cd31d07), issue encerrada após validação. [Relatório técnico](../authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
 - [x] #03 Infraestrutura PBAC: entrega pelo PR #8 aprovada pelo responsável; integração e aceite rastreados na issue. 121 testes unitários, 12 integração/HTTP com MongoDB e 1 E2E aprovados. [Implementação e estudo](../authorization/PBAC_IMPLEMENTATION_STUDY.md).

@@ -7,7 +7,9 @@ import { OrganizationsModule } from '@/features/organizations/organizations.modu
 import { UsersModule } from '@/features/users/users.module';
 import { AuthSessionsModule } from './auth-sessions.module';
 import { AuthController } from './controllers/auth.controller';
+import { SessionsController } from './controllers/sessions.controller';
 import { AuthService } from './services/auth.service';
+import { SessionManagementService } from './services/session-management.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 
@@ -35,8 +37,8 @@ import { LocalStrategy } from './strategies/local.strategy';
       }),
     }),
   ],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
-  controllers: [AuthController],
+  providers: [AuthService, LocalStrategy, JwtStrategy, SessionManagementService],
+  controllers: [AuthController, SessionsController],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -50,6 +50,13 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
     roles: Object.values(Role),
     condition: ownResource,
   },
+  {
+    resource: PolicyResource.SESSION,
+    action: PolicyAction.LIST,
+    roles: Object.values(Role),
+    // Collection scope is the authenticated account, never a client-supplied user ID.
+    condition: ownResource,
+  },
   ...legacyResources.flatMap((resource) =>
     administrativeActions.map((action) => ({
       resource,

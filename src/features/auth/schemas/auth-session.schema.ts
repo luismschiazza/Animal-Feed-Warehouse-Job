@@ -74,6 +74,7 @@ export const AuthSessionSchema = SchemaFactory.createForClass(AuthSession);
 
 AuthSessionSchema.index({ sessionId: 1 }, { unique: true });
 AuthSessionSchema.index({ userId: 1 });
+AuthSessionSchema.index({ userId: 1, _id: -1 });
 // Cleanup only: request validation must still check expiresAt explicitly.
 AuthSessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 

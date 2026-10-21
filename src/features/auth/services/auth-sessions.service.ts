@@ -1,6 +1,7 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { SessionPage } from '../interfaces/session-summary.interface';
 import { AuthSession, SessionRevocationReason } from '../schemas/auth-session.schema';
 import { generateRefreshToken, isSessionId, parseRefreshToken } from '../tokens/refresh-token';
 
@@ -48,6 +49,51 @@ export class AuthSessionsService {
       .exec();
     if (!session) throw this.invalidSession();
     return session;
+  }
+
+  // Internal reader: caller must supply the server-authenticated identity/session.
+  // Ownership remains mandatory in the DB query, including on later pages.
+  async listOwnedActive(
+    userId: string,
+    currentSessionId: string,
+    limit = 25,
+    before?: string,
+  ): Promise<SessionPage> {
+    if (!/^[a-f0-9]{24}$/i.test(userId) || !isSessionId(currentSessionId))
+      throw this.invalidSession();
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      (before !== undefined && (typeof before !== 'string' || !/^[a-f0-9]{24}$/i.test(before)))
+    ) {
+      throw new BadRequestException('Invalid session pagination');
+    }
+    const rows = await this.sessions
+      .find({
+        userId: new Types.ObjectId(userId),
+        ...this.activeFilter(),
+        ...(before ? { _id: { $lt: new Types.ObjectId(before) } } : {}),
+      })
+      .select('_id sessionId organizationId userAgent ip createdAt lastUsedAt expiresAt')
+      .sort({ _id: -1 })
+      .limit(limit + 1)
+      .lean()
+      .exec();
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((row) => ({
+        sessionId: row.sessionId,
+        organizationId: row.organizationId?.toString() ?? null,
+        current: row.sessionId === currentSessionId,
+        userAgent: row.userAgent,
+        ip: row.ip,
+        createdAt: row.createdAt,
+        lastRefreshedAt: row.lastUsedAt,
+        expiresAt: row.expiresAt,
+      })),
+      nextCursor: rows.length > limit ? page[page.length - 1]._id.toString() : null,
+    };
   }
 
   async revoke(sessionId: string, userId: string) {

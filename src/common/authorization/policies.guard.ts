@@ -38,6 +38,14 @@ export class PoliciesGuard extends JwtAuthGuard {
     if (!requirements?.length) throw new ForbiddenException('No authorization policy declared');
     const request = context.switchToHttp().getRequest();
     for (const requirement of requirements) {
+      // SESSION currently covers own collection and current logout only. A future
+      // parameterized target must get a real loader, not inherit the current owner.
+      if (
+        requirement.resource === PolicyResource.SESSION &&
+        Object.keys(request.params ?? {}).length
+      ) {
+        throw new ForbiddenException('Session target authorization not configured');
+      }
       const ownResource =
         requirement.resource === PolicyResource.PROFILE ||
         requirement.resource === PolicyResource.SESSION;

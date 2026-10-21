@@ -23,12 +23,14 @@ import { AttendanceListener } from '@/features/attendance/listerners/attendance.
 import { AttendancesService } from '@/features/attendance/services/attendance.service';
 import { AuthSessionsModule } from '@/features/auth/auth-sessions.module';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
+import { SessionsController } from '@/features/auth/controllers/sessions.controller';
 import { AuthSession, SessionRevocationReason } from '@/features/auth/schemas/auth-session.schema';
 import {
   AuthSessionsService,
   MAX_SESSION_ROTATIONS,
 } from '@/features/auth/services/auth-sessions.service';
 import { AuthService } from '@/features/auth/services/auth.service';
+import { SessionManagementService } from '@/features/auth/services/session-management.service';
 import { JwtStrategy } from '@/features/auth/strategies/jwt.strategy';
 import { LocalStrategy } from '@/features/auth/strategies/local.strategy';
 import { DisciplinesController } from '@/features/disciplines/controllers/disciplines.controller';
@@ -69,6 +71,12 @@ class ProbeController {
   @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.USER })
   admin() {
     return { allowed: true };
+  }
+
+  @Get('session-target/:id')
+  @RequirePolicies({ action: PolicyAction.REVOKE, resource: PolicyResource.SESSION })
+  unresolvedSessionTarget() {
+    return { shouldNotExecute: true };
   }
 
   @Get('undeclared')
@@ -142,6 +150,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       controllers: [
         AuthController,
+        SessionsController,
         ProbeController,
         UsersController,
         DisciplinesController,
@@ -151,6 +160,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       providers: [
         AuthService,
+        SessionManagementService,
         UsersService,
         DisciplinesService,
         GradesService,
@@ -232,6 +242,85 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     });
     return organization._id.toString();
   }
+
+  it('lists only my active sessions, identifies current SID, and never returns credentials', async () => {
+    const current = await login('Current browser');
+    const otherDevice = await login('Other browser');
+    const org = await tenant('A');
+    const organizationSession = await login('At A', org);
+    const stranger = await users.create({
+      name: 'Stranger',
+      email: 'stranger@example.com',
+      password: await bcrypt.hash(password, 4),
+      status: AccountStatus.ACTIVE,
+      roles: [Role.CUSTOMER],
+    });
+    const strangerSession = await sessions.create(stranger.id);
+    const revoked = await sessions.create(userId);
+    await sessions.revoke(revoked.sessionId, userId);
+    const expired = await sessions.create(userId);
+    await sessionModel.updateOne(
+      { sessionId: expired.sessionId },
+      { $set: { expiresAt: new Date(Date.now() - 1000) } },
+    );
+    const response = await request(app.getHttpServer())
+      .get('/auth/sessions')
+      .auth(current.access_token, { type: 'bearer' })
+      .expect(200);
+    expect(response.body.items.map((item) => item.sessionId).sort()).toEqual(
+      [current.session_id, otherDevice.session_id, organizationSession.session_id].sort(),
+    );
+    expect(
+      response.body.items.filter((item) => item.current).map((item) => item.sessionId),
+    ).toEqual([current.session_id]);
+    expect(
+      response.body.items.find((item) => item.sessionId === organizationSession.session_id)
+        .organizationId,
+    ).toBe(org);
+    expect(JSON.stringify(response.body)).not.toMatch(
+      /currentToken|consumedTokens|tokenHash|password|rotationVersion/,
+    );
+    for (const secret of [
+      current.access_token,
+      current.refresh_token,
+      strangerSession.refreshToken,
+    ])
+      expect(JSON.stringify(response.body)).not.toContain(secret);
+    expect(response.body.nextCursor).toBeNull();
+  });
+
+  it('does not mistake an arbitrary session target for the currently authenticated session', async () => {
+    const current = await login();
+    await request(app.getHttpServer())
+      .get(`/probe/session-target/${randomUUID()}`)
+      .auth(current.access_token, { type: 'bearer' })
+      .expect(403);
+  });
+
+  it('paginates own sessions and rejects client-chosen user/organization and invalid limits', async () => {
+    const current = await login('Current');
+    const second = await login('Second');
+    const get = (query = '') =>
+      request(app.getHttpServer())
+        .get(`/auth/sessions${query}`)
+        .auth(current.access_token, { type: 'bearer' });
+    const first = await get('?limit=1').expect(200);
+    expect(first.body.items.map((item) => item.sessionId)).toEqual([second.session_id]);
+    expect(first.body.nextCursor).toMatch(/^[a-f0-9]{24}$/);
+    const next = await get(`?limit=1&before=${first.body.nextCursor}`).expect(200);
+    expect(next.body.items.map((item) => item.sessionId)).toEqual([current.session_id]);
+    expect(next.body.nextCursor).toBeNull();
+    for (const query of [
+      '?limit=0',
+      '?limit=101',
+      '?limit=1.5',
+      '?before=bad',
+      `?userId=${new Types.ObjectId()}`,
+      `?organizationId=${new Types.ObjectId()}`,
+    ])
+      await get(query).expect(400);
+    await request(app.getHttpServer()).get('/auth/sessions').expect(401);
+  });
 
   describe('ABAC resources — real controllers/services and A/B IDOR', () => {
     let a: string, b: string, tokenA: string, tokenB: string;

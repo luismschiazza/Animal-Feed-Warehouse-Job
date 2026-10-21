@@ -45,6 +45,10 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 Esta entrega de segurança não conclui os CRUDs comerciais nem a preparação de produção: seguem #5, #6 e o planejamento dos reforços.
 
+### Gestão de sessões — #5 em andamento
+
+`GET /auth/sessions` lista as próprias sessões ativas, com paginação (`limit` até 100 e `before`), indica a sessão atual e não retorna credenciais. A identidade é revalidada no serviço e o filtro de proprietário é obrigatório. Etapa validada com 42 testes HTTP/sessões e 13 testes de vínculos/provisionamento em MongoDB real. Revogações adicionais/administração e auditoria ainda estão pendentes; a #5 não está concluída. [Estudo e execução](docs/authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
+
 ### Papéis atuais
 
 | Papel | Responsabilidade inicial |
