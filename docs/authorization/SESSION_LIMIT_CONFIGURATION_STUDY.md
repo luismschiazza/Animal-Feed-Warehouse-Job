@@ -4,6 +4,8 @@
 
 Baseline conferida: main 96a58c1; #1–#6 CLOSED/Done, PR #11 integrada. Autorização desta execução: concluir SOMENTE #16. #17 (admissão atômica) e #18 (substituição) permanecem fora do escopo.
 
+**Entrega integrada pela [PR #25](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/25)**. Implementação `0617249d09b73dae0d36e08d8a2be036c17f7c27`; merge `74def00b22a74828e101138638a2ce120c6670d2`. Todos os resultados abaixo foram repetidos com sucesso na main após merge, incluindo ambos os smokes reais. Só depois disso ocorre CLOSED/Done da #16.
+
 - Limite empresarial padrão: 3 por identidade/organização. Configuração pertence à organização, não à conta global.
 - Chave preparada: applicationId server-side + organizationId. Aplicação atual `animal-feed-warehouse`; CTA não integrado. Cliente não escolhe aplicação, organização ou usuário no endpoint.
 - Contexto pessoal independente: valor NÃO definido; sem fallback empresarial e sem endpoint pessoal neste ticket.
@@ -17,7 +19,7 @@ Baseline conferida: main 96a58c1; #1–#6 CLOSED/Done, PR #11 integrada. Autoriz
 
 ## O que, como e por quê
 
-Configuração versionada implementada e validada localmente; integração/aceite ficam registrados na PR/issue #16. O índice único resolve disputa de atualização da configuração, NÃO a corrida de criação de sessões (#17).
+Configuração versionada implementada, integrada e validada localmente na main; aceite rastreado na PR #25/issue #16. O índice único resolve disputa de atualização da configuração, NÃO a corrida de criação de sessões (#17).
 
 ### Arquivos e responsabilidades
 
@@ -95,4 +97,4 @@ Sem CI remoto configurado; execução local não é certificação de produção
 
 ## Próximo passo
 
-Concluir integração/aceite da #16, atualizar principal #12 e continuidade. Depois PARAR. Próximo ticket lógico é #17, não autorizado nesta execução. #12 continua aberta; #13–#15/#17–#24 permanecem no planejamento/Backlog.
+#16 concluída e integrada; principal #12 e continuidade atualizadas. Execução encerrada: PARAR. Próximo ticket lógico é #17, não iniciado e não autorizado nesta execução. #12 continua aberta; #13–#15/#17–#24 permanecem no planejamento/Backlog. Nenhum banco, conta ou email real alterado; somente containers, usuários/papéis e bancos descartáveis dos testes.

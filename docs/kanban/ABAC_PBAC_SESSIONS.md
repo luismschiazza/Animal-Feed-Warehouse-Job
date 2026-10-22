@@ -1,6 +1,6 @@
 # Kanban — Segurança, fundações e próximas entregas
 
-**Baseline:** #1–#6 integradas/Done. #16 / 12.1 implementada e em validação/integração; acompanhar aceite na PR e issue.
+**Última entrega:** #16 / 12.1 integrada pela PR #25 (merge 74def00), revalidada na main. #1–#6 continuam integradas/Done. #12 permanece aberta.
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2 — Animal Feed Warehouse — Engenharia e Entregas (projeto existente, não duplicado).
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
 
@@ -21,9 +21,11 @@
 
 ## Em andamento / Em revisão
 
-#16 — configuração por organização, padrão 3, pessoal independente/indefinido, PBAC/ABAC/auditoria e CAS de configuração. Sem contador/admissão/substituição. [Estudo](../authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md). Autorização de execução limitada a este ticket; integração/encerramento somente após testes e revalidação da main.
+Nenhum item em execução após #16. Próximo lógico #17, mantido em Backlog e NÃO iniciado; precisa de nova autorização.
 
 ## Concluído
+
+- [x] #16 / 12.1 Configuração de limites: PR #25, implementação 0617249/merge 74def00. 245 unitários/20 suítes, 77 HTTP/MongoDB, 13 vínculos/bootstrap, 1 E2E, smokes AppModule/ACL/CLI, build/lint/tipos/diff aprovados e repetidos na main. Padrão 3 por organização, pessoal indefinido, SYSTEM_ADMIN de vínculo ativo, CAS de configuração e recibo atômico. NÃO inclui admissão #17/substituição #18. [Estudo](../authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
 
 - [x] #06 Auditoria geral: PR #11, implementação cb5a7a8/merge 07e47d0. 218 unitários/19 suítes, 65 HTTP/sessões/PBAC/ABAC, 13 vínculos/provisionamento, 1 E2E, smoke AppModule real e smoke ACL/CLI com MongoDB autenticado; build/lint/tipos/diff aprovados, repetidos na main. Eventos/consulta protegida, redação de logs, regras autoritativas preservadas, exportação e operação sem purga. [Estudo](../authorization/SECURITY_AUDIT_IMPLEMENTATION_STUDY.md).
 - [x] #05 Gestão de sessões: PR #10 (76f1852), 204 unitários/53 HTTP/13 vínculos no aceite histórico. [Estudo](../authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
