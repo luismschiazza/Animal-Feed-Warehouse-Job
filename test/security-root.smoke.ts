@@ -29,7 +29,7 @@ async function main() {
   const connection = app.get<Connection>(getConnectionToken());
   try {
     if (connection.name !== database) throw new Error('Unexpected test database');
-    for (const name of ['SecurityAuditRecord', 'SessionRevocation']) {
+    for (const name of ['SecurityAuditRecord', 'SessionRevocation', 'SessionLimitRevision']) {
       await connection.models[name].createCollection();
       await connection.models[name].createIndexes();
     }
@@ -81,8 +81,54 @@ async function main() {
       }))
     )
       throw new Error('Root prefixed login failure not audited');
+    const configPath = base + '/api/auth/organization-session-limit';
+    if ((await fetch(configPath, { headers })).status !== 403)
+      throw new Error('Personal configuration bypass');
+    const account = await connection.models.User.findOne({ email: 'root@example.invalid' });
+    const organization = await connection.models.Organization.create({
+      name: 'Root config scope',
+      status: 'active',
+    });
+    await connection.models.OrganizationMembership.create({
+      userId: account._id,
+      organizationId: organization._id,
+      status: 'active',
+      roles: ['SYSTEM_ADMIN'],
+    });
+    const corporate = await fetch(base + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'root@example.invalid',
+        password: 'smoke-only-password',
+        organizationId: organization._id.toString(),
+      }),
+    });
+    const corporateBody = (await corporate.json()) as { payload: { access_token: string } };
+    const configHeaders = {
+      Authorization: `Bearer ${corporateBody.payload.access_token}`,
+      'Content-Type': 'application/json',
+    };
+    const initial = await fetch(configPath, { headers: configHeaders });
+    if (
+      initial.status !== 200 ||
+      ((await initial.json()) as { payload: { limit: number } }).payload.limit !== 3
+    )
+      throw new Error('Root config default failed');
+    const changed = await fetch(configPath, {
+      method: 'PATCH',
+      headers: configHeaders,
+      body: JSON.stringify({ limit: 2, expectedVersion: 0 }),
+    });
+    if (
+      changed.status !== 200 ||
+      ((await changed.json()) as { payload: { version: number } }).payload.version !== 1
+    )
+      throw new Error('Root config update/envelope failed');
+    if ((await connection.models.SessionLimitRevision.countDocuments()) !== 1)
+      throw new Error('Root config receipt missing');
     console.info(
-      'PASS real AppModule smoke: login, audit persistence/read, personal tenant denial and prefixed login failure.',
+      'PASS real AppModule smoke: login, audit, tenant denial, prefix/envelope and versioned session configuration.',
     );
   } finally {
     if (connection.name === database) await connection.dropDatabase();

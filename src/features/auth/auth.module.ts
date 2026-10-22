@@ -10,11 +10,14 @@ import { OrganizationsModule } from '@/features/organizations/organizations.modu
 import { UsersModule } from '@/features/users/users.module';
 import { AuthSessionsModule } from './auth-sessions.module';
 import { AuthController } from './controllers/auth.controller';
+import { SessionLimitConfigurationController } from './controllers/session-limit-configuration.controller';
 import {
   OrganizationSessionsController,
   SessionsController,
 } from './controllers/sessions.controller';
+import { SessionLimitModelModule } from './models/session-limit-model.module';
 import { AuthService } from './services/auth.service';
+import { SessionLimitConfigurationService } from './services/session-limit-configuration.service';
 import { SessionManagementService } from './services/session-management.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
@@ -25,6 +28,7 @@ import { LocalStrategy } from './strategies/local.strategy';
     UsersModule,
     OrganizationsModule,
     AuthSessionsModule,
+    SessionLimitModelModule,
     PassportModule.register({ defaultStrategy: 'jwt', session: false }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -48,11 +52,13 @@ import { LocalStrategy } from './strategies/local.strategy';
     LocalStrategy,
     JwtStrategy,
     SessionManagementService,
+    SessionLimitConfigurationService,
     PolicyEngine,
     AuditQueryService,
   ],
   controllers: [
     AuthController,
+    SessionLimitConfigurationController,
     SessionsController,
     OrganizationSessionsController,
     AuditController,

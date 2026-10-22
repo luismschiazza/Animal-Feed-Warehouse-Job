@@ -1,4 +1,11 @@
-import { Controller, Get, INestApplication, Req, ValidationPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  INestApplication,
+  Req,
+  ServiceUnavailableException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -14,6 +21,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as request from 'supertest';
+import { AuditContext } from '@/common/audit/audit-context.service';
 import { exportAudit } from '@/common/audit/audit-export';
 import { verifyAuditIndexes } from '@/common/audit/audit-indexes';
 import { AuditQueryService } from '@/common/audit/audit-query.service';
@@ -34,11 +42,14 @@ import { AttendanceListener } from '@/features/attendance/listerners/attendance.
 import { AttendancesService } from '@/features/attendance/services/attendance.service';
 import { AuthSessionsModule } from '@/features/auth/auth-sessions.module';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
+import { SessionLimitConfigurationController } from '@/features/auth/controllers/session-limit-configuration.controller';
 import {
   OrganizationSessionsController,
   SessionsController,
 } from '@/features/auth/controllers/sessions.controller';
+import { SessionLimitModelModule } from '@/features/auth/models/session-limit-model.module';
 import { AuthSession, SessionRevocationReason } from '@/features/auth/schemas/auth-session.schema';
+import { SessionLimitRevision } from '@/features/auth/schemas/session-limit-revision.schema';
 import {
   RevocationAction,
   SessionRevocation,
@@ -48,6 +59,7 @@ import {
   MAX_SESSION_ROTATIONS,
 } from '@/features/auth/services/auth-sessions.service';
 import { AuthService } from '@/features/auth/services/auth.service';
+import { SessionLimitConfigurationService } from '@/features/auth/services/session-limit-configuration.service';
 import { SessionManagementService } from '@/features/auth/services/session-management.service';
 import { SessionRevocationsService } from '@/features/auth/services/session-revocations.service';
 import { JwtStrategy } from '@/features/auth/strategies/jwt.strategy';
@@ -159,6 +171,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         }),
         MongooseModule.forRoot(uri, { dbName: databaseName, serverSelectionTimeoutMS: 10_000 }),
         AuthSessionsModule,
+        SessionLimitModelModule,
         UserModelModule,
         OrganizationsModule,
         ScopedResourcesModule,
@@ -170,6 +183,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
       controllers: [
         AuthController,
+        SessionLimitConfigurationController,
         AuditController,
         SessionsController,
         OrganizationSessionsController,
@@ -184,6 +198,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         AuthService,
         AuditQueryService,
         SessionManagementService,
+        SessionLimitConfigurationService,
         UsersService,
         DisciplinesService,
         GradesService,
@@ -197,7 +212,11 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       ],
     }).compile();
     // Test operator provisions only the two audit collections in the generated DB.
-    for (const name of [SecurityAuditRecord.name, SessionRevocation.name]) {
+    for (const name of [
+      SecurityAuditRecord.name,
+      SessionRevocation.name,
+      SessionLimitRevision.name,
+    ]) {
       const model = module.get<Model<any>>(getModelToken(name));
       await model.createCollection();
       await model.createIndexes();
@@ -225,6 +244,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     for (const name of ['Discipline', 'Grade', 'Attendance', 'Meeting'])
       await connection.models[name].deleteMany({});
     await connection.models.SecurityAuditRecord.deleteMany({});
+    await connection.models.SessionLimitRevision.deleteMany({});
     await sessionModel.deleteMany({});
     await revocationModel.deleteMany({});
     await users.deleteMany({});
@@ -1310,6 +1330,252 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       await users.updateOne({ _id: userId }, { $set: { status: AccountStatus.SUSPENDED } });
       await expect(resources.list(PolicyResource.LEGACY_DISCIPLINE, subject)).rejects.toThrow();
       await http('get', '/disciplines', tokenA).expect(401);
+    });
+  });
+
+  describe('#16 configuration only — no admission or eviction', () => {
+    const path = '/auth/organization-session-limit';
+    const http = (method: 'get' | 'patch', token: string, body?: object) => {
+      const call = request(app.getHttpServer())[method](path).auth(token, { type: 'bearer' });
+      return body ? call.send(body) : call;
+    };
+    async function setup() {
+      const a = await tenant('Configuration A', [Role.SYSTEM_ADMIN]);
+      const b = await tenant('Configuration B', [Role.SYSTEM_ADMIN]);
+      const first = await login('Config A', a),
+        second = await login('Config B', b);
+      const identity = await app.get(AuthService).validateSession(userId, first.session_id);
+      return { a, b, first, second, actor: { ...identity, sessionId: first.session_id } };
+    }
+    it('returns independent defaults without writes; personal is not assigned a limit', async () => {
+      const s = await setup();
+      for (const [token, org] of [
+        [s.first.access_token, s.a],
+        [s.second.access_token, s.b],
+      ]) {
+        const res = await http('get', token).expect(200);
+        expect(res.body).toEqual({
+          scope: 'organization',
+          applicationId: 'animal-feed-warehouse',
+          organizationId: org,
+          limit: 3,
+          version: 0,
+        });
+      }
+      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(0);
+      await http('get', (await login()).access_token).expect(403);
+      await request(app.getHttpServer()).get(path).expect(401);
+      await request(app.getHttpServer())
+        .get(path + '?organizationId=' + s.b)
+        .auth(s.first.access_token, { type: 'bearer' })
+        .expect(400);
+      const header = await http('get', s.first.access_token)
+        .set('X-Organization-Id', s.b)
+        .set('X-Application-Id', 'cta')
+        .expect(200);
+      expect(header.body.organizationId).toBe(s.a);
+      expect(header.body.applicationId).toBe('animal-feed-warehouse');
+    });
+    it('persists versioned configuration and audit receipt without exposing identity/secrets', async () => {
+      const s = await setup();
+      await http('patch', s.first.access_token, { limit: 5, expectedVersion: 0 }).expect(200);
+      const a = await http('get', s.first.access_token).expect(200);
+      expect(a.body.limit).toBe(5);
+      expect(a.body.version).toBe(1);
+      expect((await http('get', s.second.access_token).expect(200)).body.limit).toBe(3);
+      const row = await connection.models.SessionLimitRevision.findOne({
+        organizationId: s.a,
+      }).lean<SessionLimitRevision & { _id: Types.ObjectId }>();
+      expect(row.previousLimit).toBe(3);
+      expect(row.actorUserId.toString()).toBe(userId);
+      expect(row.roles).toEqual([Role.SYSTEM_ADMIN]);
+      const completion = await connection.models.SecurityAuditRecord.findOne({
+        event: 'session_limit_configuration',
+        result: 'allowed',
+        targetId: row._id.toString(),
+      });
+      expect(completion.requestId).toBe(row.requestId);
+      expect(JSON.stringify(row)).not.toContain(s.first.access_token);
+      expect(Object.keys(a.body).sort()).toEqual([
+        'applicationId',
+        'limit',
+        'organizationId',
+        'scope',
+        'version',
+      ]);
+      await http('patch', s.first.access_token, { limit: 4, expectedVersion: 0 }).expect(409);
+    });
+    it.each([Role.ORGANIZATION_OWNER, Role.MANAGER, Role.CUSTOMER, Role.AUDITOR])(
+      'denies %s even with global administrative roles',
+      async (role) => {
+        const s = await setup();
+        await users.updateOne({ _id: userId }, { $set: { roles: [Role.SYSTEM_ADMIN] } });
+        await memberships.updateOne({ organizationId: s.a, userId }, { $set: { roles: [role] } });
+        await http('get', s.first.access_token).expect(403);
+        await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(403);
+        expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(0);
+        expect(
+          await connection.models.SecurityAuditRecord.countDocuments({
+            resource: PolicyResource.SESSION_LIMIT_CONFIGURATION,
+            result: 'denied',
+          }),
+        ).toBeGreaterThan(0);
+      },
+    );
+    it('revalidates direct service calls, forged tenant/fields and inactive contexts', async () => {
+      const s = await setup(),
+        service = app.get(SessionLimitConfigurationService);
+      await expect(
+        service.update({ ...s.actor, organizationId: s.b }, { limit: 2, expectedVersion: 0 }),
+      ).rejects.toThrow();
+      for (const extra of [
+        { organizationId: s.b },
+        { applicationId: 'cta' },
+        { userId },
+        { roles: [Role.SYSTEM_ADMIN] },
+      ]) {
+        await http('patch', s.first.access_token, {
+          limit: 2,
+          expectedVersion: 0,
+          ...extra,
+        }).expect(400);
+        await expect(
+          service.update(s.actor, { limit: 2, expectedVersion: 0, ...extra }),
+        ).rejects.toThrow();
+      }
+      await memberships.updateOne(
+        { organizationId: s.a, userId },
+        { $set: { roles: [Role.CUSTOMER] } },
+      );
+      await expect(
+        service.update(
+          { ...s.actor, roles: [Role.SYSTEM_ADMIN] },
+          { limit: 2, expectedVersion: 0 },
+        ),
+      ).rejects.toThrow();
+      await memberships.updateOne(
+        { organizationId: s.a, userId },
+        { $set: { roles: [Role.SYSTEM_ADMIN], status: 'suspended' } },
+      );
+      await expect(service.read(s.actor)).rejects.toThrow();
+      await http('get', s.first.access_token).expect(403);
+      await memberships.updateOne({ organizationId: s.a, userId }, { $set: { status: 'active' } });
+      await organizations.updateOne({ _id: s.a }, { $set: { status: 'suspended' } });
+      await expect(service.read(s.actor)).rejects.toThrow();
+      await organizations.updateOne({ _id: s.a }, { $set: { status: 'active' } });
+      await users.updateOne({ _id: userId }, { $set: { status: AccountStatus.SUSPENDED } });
+      await expect(service.read(s.actor)).rejects.toThrow();
+      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(0);
+    });
+    it('rejects invalid values at HTTP and never changes sessions when reducing', async () => {
+      const s = await setup();
+      for (const limit of [0, -1, 101, 1.5, '3', null])
+        await http('patch', s.first.access_token, { limit, expectedVersion: 0 }).expect(400);
+      for (let i = 0; i < 4; i++) await login('Existing ' + i, s.a);
+      const filter = { organizationId: new Types.ObjectId(s.a) };
+      const before = await sessionModel.collection.find(filter).toArray();
+      const revocationsBefore = await revocationModel.countDocuments();
+      await http('patch', s.first.access_token, { limit: 1, expectedVersion: 0 }).expect(200);
+      expect(await sessionModel.collection.find(filter).toArray()).toEqual(before);
+      expect(await revocationModel.countDocuments()).toBe(revocationsBefore);
+      await probe(s.first.access_token).expect(200);
+    });
+    it('allows exactly one successor across separate service instances and persists primary visibility', async () => {
+      const s = await setup(),
+        first = app.get(SessionLimitConfigurationService);
+      const other = new SessionLimitConfigurationService(
+        connection.models.SessionLimitRevision,
+        app.get(SessionManagementService),
+        app.get(SecurityAuditService),
+        app.get(AuditContext),
+      );
+      const attempts = await Promise.allSettled(
+        Array.from({ length: 10 }, (_, i) =>
+          (i % 2 ? first : other).update(s.actor, { limit: i + 1, expectedVersion: 0 }),
+        ),
+      );
+      expect(attempts.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(
+        attempts
+          .filter((result) => result.status === 'rejected')
+          .every((result) => (result as PromiseRejectedResult).reason.getStatus() === 409),
+      ).toBe(true);
+      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(1);
+      expect(await other.read(s.actor)).toEqual(await first.read(s.actor));
+    });
+    it('fails closed on missing/TTL configuration indexes and corrupt stored values', async () => {
+      const s = await setup(),
+        model = connection.models.SessionLimitRevision,
+        service = app.get(SessionLimitConfigurationService);
+      await model.collection.dropIndex('applicationId_1_organizationId_1_version_-1');
+      try {
+        await expect(service.onModuleInit()).rejects.toThrow('unavailable');
+      } finally {
+        await model.createIndexes();
+      }
+      await model.collection.createIndex(
+        { occurredAt: 1 },
+        { expireAfterSeconds: 3600, name: 'unsafe_config_ttl' },
+      );
+      try {
+        await expect(service.onModuleInit()).rejects.toThrow('unsafe');
+      } finally {
+        await model.collection.dropIndex('unsafe_config_ttl');
+      }
+      await model.collection.insertOne({
+        applicationId: 'animal-feed-warehouse',
+        organizationId: new Types.ObjectId(s.a),
+        version: 1,
+        limit: 0,
+      });
+      await expect(service.read(s.actor)).rejects.toThrow('unavailable');
+      await http('get', s.first.access_token).expect(503);
+    });
+    it('records failed configuration insertion without changing the policy', async () => {
+      const s = await setup();
+      await connection.db.command({
+        collMod: 'session_limit_revisions',
+        validator: { limit: { $lte: 1 } },
+        validationAction: 'error',
+      });
+      try {
+        await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(500);
+      } finally {
+        await connection.db.command({ collMod: 'session_limit_revisions', validator: {} });
+      }
+      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(0);
+      expect(
+        await connection.models.SecurityAuditRecord.countDocuments({
+          event: AuditEvent.SESSION_LIMIT_CONFIGURATION,
+          result: 'error',
+        }),
+      ).toBeGreaterThan(0);
+      expect((await http('get', s.first.access_token).expect(200)).body).toMatchObject({
+        limit: 3,
+        version: 0,
+      });
+    });
+
+    it('keeps an atomic change receipt on post-write audit failure; stale retry cannot duplicate', async () => {
+      const s = await setup(),
+        audit = app.get(SecurityAuditService);
+      const record = audit.record.bind(audit);
+      const spy = jest.spyOn(audit, 'record').mockImplementation(async (...args) => {
+        if (args[0] === AuditEvent.SESSION_LIMIT_CONFIGURATION && args[1] === 'allowed')
+          throw new ServiceUnavailableException('Security audit unavailable');
+        return record(...args);
+      });
+      try {
+        await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(503);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(1);
+      expect((await http('get', s.first.access_token).expect(200)).body).toMatchObject({
+        limit: 2,
+        version: 1,
+      });
+      await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(409);
     });
   });
 

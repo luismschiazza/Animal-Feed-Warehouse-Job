@@ -19,6 +19,7 @@ export enum PolicyResource {
   PROFILE = 'profile',
   SESSION = 'session',
   ORGANIZATION_SESSION = 'organization_session',
+  SESSION_LIMIT_CONFIGURATION = 'session_limit_configuration',
   LEGACY_DISCIPLINE = 'legacy_discipline',
   LEGACY_ATTENDANCE = 'legacy_attendance',
   LEGACY_GRADE = 'legacy_grade',
