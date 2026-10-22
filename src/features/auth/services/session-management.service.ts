@@ -62,7 +62,13 @@ export class SessionManagementService {
     subject: PolicySubject,
     id?: string,
   ) {
-    if (![PolicyResource.SESSION, PolicyResource.ORGANIZATION_SESSION].includes(resource))
+    if (
+      ![
+        PolicyResource.SESSION,
+        PolicyResource.ORGANIZATION_SESSION,
+        PolicyResource.SESSION_LIMIT_CONFIGURATION,
+      ].includes(resource)
+    )
       throw new ForbiddenException('Session access denied');
     const attributes: PolicyResourceAttributes = {
       type: resource,

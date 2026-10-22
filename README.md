@@ -43,6 +43,12 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 **Instalação nova:** a loja começa com banco vazio. O primeiro acesso será criado conscientemente pelo operador com `npm run bootstrap:organization`, com a API parada e as variáveis `BOOTSTRAP_*` configuradas. O comando recusa banco não vazio/já inicializado e não concede privilégios globais ou a outras empresas. Não executar seeders escolares. Nenhum provisionamento real foi feito nesta execução. Instruções e limites: [ABAC — implementação e estudo](docs/authorization/ABAC_IMPLEMENTATION_STUDY.md).
 
+### Configuração de limites de sessões — #16 / 12.1
+
+`GET/PATCH /api/auth/organization-session-limit`: SYSTEM_ADMIN do vínculo ativo consulta/altera somente a organização da sessão. Padrão empresarial **3 por usuário/organização**; faixa técnica 1..100 e atualização com `expectedVersion`. Contexto pessoal não herda esse valor e permanece sem política numérica definida.
+
+**Somente configuração:** reduzir não revoga sessões; admissão atômica e substituição não foram implementadas aqui (#17/#18). Revisões append-only unem valor e recibo de auditoria; leitura primary/majority sem cache. Antes da primeira API desta versão, operador executa `session-limits:initialize` com `SESSION_LIMITS_MONGO_URL` explícita e credencial separada. Runtime: find/insert/listIndexes nessa coleção, sem update/delete/TTL/DDL. Não usar banco real durante testes. Contrato, limites e falhas: [estudo #16](docs/authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
+
 Estas entregas de segurança não concluem os CRUDs comerciais nem a preparação de produção. As próximas fundações incluem reforços de contas/sessões, CI/CD, ambientes/recuperação e vínculos empresariais, sem implementação antecipada.
 
 ### Gestão de sessões — #5 / PR #10
@@ -195,7 +201,7 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 4. ABAC e isolamento por organização/recurso — implementado e validado nos recursos atuais, com provisionamento inicial controlado;
 5. gestão de sessões — integrada e validada (#5 / PR #10);
 6. auditoria geral e regressões de segurança — integrada e validada (#6 / PR #11);
-7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — Ready para estudo; políticas/limites dependem de acordo com responsável;
+7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta, tickets #16–#23; #16 configura limites, sem antecipar admissão/substituição #17/#18;
 8. [CI/CD e qualidade (#13)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/13) — Backlog;
 9. [ambientes, observabilidade e recuperação (#14)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — Backlog;
 10. [funcionários e vínculos (#15)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — Backlog;

@@ -73,9 +73,11 @@ export class PoliciesGuard extends JwtAuthGuard {
           environment: { method: request.method, ip: request.ip },
         };
         if (
-          [PolicyResource.SESSION, PolicyResource.ORGANIZATION_SESSION].includes(
-            requirement.resource,
-          )
+          [
+            PolicyResource.SESSION,
+            PolicyResource.ORGANIZATION_SESSION,
+            PolicyResource.SESSION_LIMIT_CONFIGURATION,
+          ].includes(requirement.resource)
         ) {
           const resolved = await this.sessions.authorize(
             requirement.resource,

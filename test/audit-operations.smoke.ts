@@ -15,6 +15,10 @@ import {
 } from '../src/common/audit/security-audit.schema';
 import { SecurityAuditService } from '../src/common/audit/security-audit.service';
 import {
+  SessionLimitRevision,
+  SessionLimitRevisionSchema,
+} from '../src/features/auth/schemas/session-limit-revision.schema';
+import {
   SessionRevocation,
   SessionRevocationSchema,
 } from '../src/features/auth/schemas/session-revocation.schema';
@@ -41,14 +45,19 @@ async function main() {
     autoCreate: false,
     autoIndex: false,
   }).asPromise();
-  const collections = ['security_audit_events', 'auth_session_revocations'];
+  const collections = [
+    'security_audit_events',
+    'auth_session_revocations',
+    'session_limit_revisions',
+  ];
   const options = (schema: Schema) =>
     schema.clone().set('autoCreate', false).set('autoIndex', false);
   let writer: Awaited<ReturnType<typeof admin.asPromise>>, reader: typeof writer;
   try {
     const general = admin.model(SecurityAuditRecord.name, options(SecurityAuditSchema));
     const revocations = admin.model(SessionRevocation.name, options(SessionRevocationSchema));
-    for (const model of [general, revocations] as Model<any>[]) {
+    const limits = admin.model(SessionLimitRevision.name, options(SessionLimitRevisionSchema));
+    for (const model of [general, revocations, limits] as Model<any>[]) {
       await model.createCollection();
       await model.createIndexes();
       await verifyAuditIndexes(model);
@@ -100,6 +109,28 @@ async function main() {
       targetSessionId: sid,
       occurredAt: new Date(),
     });
+    const configuration = writer.model<SessionLimitRevision>(
+      SessionLimitRevision.name,
+      options(SessionLimitRevisionSchema),
+    );
+    await verifyAuditIndexes(configuration);
+    await configuration.create({
+      applicationId: 'animal-feed-warehouse',
+      organizationId: new Types.ObjectId(),
+      version: 1,
+      limit: 3,
+      previousLimit: 3,
+      actorUserId: account,
+      membershipId: new Types.ObjectId(),
+      roles: ['SYSTEM_ADMIN'],
+      requestId: randomUUID(),
+      occurredAt: new Date(),
+    });
+    if ((await configuration.findOne().read('primary')).limit !== 3)
+      throw new Error('Restricted configuration read failed');
+    await mustDeny(() =>
+      configuration.collection.createIndex({ occurredAt: 1 }, { expireAfterSeconds: 1 }),
+    );
     await store.record(AuditEvent.LOGIN, 'denied', 'auth');
     // A restricted writer can append/read, but cannot erase history or add a destructive TTL.
     await mustDeny(() => writerModel.collection.updateOne({}, { $set: { result: 'allowed' } }));

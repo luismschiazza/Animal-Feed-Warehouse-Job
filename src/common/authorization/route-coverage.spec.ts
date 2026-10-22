@@ -4,6 +4,7 @@ import { AppController } from '@/app/controllers/app.controller';
 import { AuditController } from '@/common/audit/audit.controller';
 import { AttendancesController } from '@/features/attendance/controllers/attendance.controller';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
+import { SessionLimitConfigurationController } from '@/features/auth/controllers/session-limit-configuration.controller';
 import {
   OrganizationSessionsController,
   SessionsController,
@@ -17,6 +18,7 @@ import { POLICY_DEFINITIONS } from './policy.registry';
 import { PolicyRequirement } from './policy.types';
 
 const controllers = [
+  SessionLimitConfigurationController,
   AppController,
   AuditController,
   AuthController,

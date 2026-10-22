@@ -3,6 +3,7 @@ import { SchemaTypes, Types } from 'mongoose';
 import { Role } from '../enums/role.enum';
 
 export enum AuditEvent {
+  SESSION_LIMIT_CONFIGURATION = 'session_limit_configuration',
   LOGIN = 'login',
   REFRESH = 'refresh',
   AUTHENTICATION = 'authentication',

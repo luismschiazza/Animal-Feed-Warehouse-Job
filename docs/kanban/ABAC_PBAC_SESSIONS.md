@@ -1,12 +1,12 @@
 # Kanban — Segurança, fundações e próximas entregas
 
-**Última entrega:** #6 integrada à main pela PR #11, merge 07e47d0; validação repetida na main antes de CLOSED/Done.
+**Baseline:** #1–#6 integradas/Done. #16 / 12.1 implementada e em validação/integração; acompanhar aceite na PR e issue.
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2 — Animal Feed Warehouse — Engenharia e Entregas (projeto existente, não duplicado).
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
 
 ## Ready
 
-- [ ] [#12 Reforço de sessões e segurança de contas](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — **somente estudo/definição**. Políticas, limites e excedentes precisam de acordo com responsável ANTES de implementar. [Plano](../issues/SESSION_ACCOUNT_HARDENING.md).
+- [ ] [#12 Reforço de sessões e segurança de contas](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta/Ready; planejamento aprovado em oito sub-issues #16–#23. GitHub prevalece sobre alternativas históricas do plano versionado.
 
 ## Backlog
 
@@ -14,11 +14,14 @@
 - [ ] [#14 Ambientes, observabilidade e recuperação](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — operação proporcional, secrets/permissões, alertas e restore ensaiado. [Plano](../issues/ENVIRONMENTS_OBSERVABILITY_RECOVERY.md).
 - [ ] [#15 Gestão de funcionários e vínculos empresariais](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — delegação e revogação seletiva, preservando identidade pessoal e B. [Plano](../issues/EMPLOYEE_MEMBERSHIP_MANAGEMENT.md).
 
-As quatro issues contêm objetivo/problema, escopo/fora, requisitos, aceite verificável, testes, dependências/riscos, checklist e estudo exigido. Prioridade P1, áreas/tipo e ordem 7–10 preenchidos. Não foram implementadas. Os números propostos #7–#10 não foram reutilizados indevidamente: GitHub compartilha sequência com PRs; números reais são #12–#15.
+- [ ] #17–#23: planejamento da #12, preservado em Backlog; próximo ticket #17 somente após concluir #16 e nova autorização. Não iniciar automaticamente.
+- [ ] #24: performance independente, p95 < 300 ms sob carga documentada; sem benchmark nesta entrega.
+
+#13–#15 preservadas em Backlog, sem implementação antecipada. O planejamento atual e dependências constam nas issues nativas.
 
 ## Em andamento / Em revisão
 
-_Nenhum item após a entrega da #6. Não iniciar as futuras issues por interpretar Ready como autorização de implementação._
+#16 — configuração por organização, padrão 3, pessoal independente/indefinido, PBAC/ABAC/auditoria e CAS de configuração. Sem contador/admissão/substituição. [Estudo](../authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md). Autorização de execução limitada a este ticket; integração/encerramento somente após testes e revalidação da main.
 
 ## Concluído
 
