@@ -79,7 +79,12 @@ describe('AuthService', () => {
   );
   it('creates a personal session without an implicit organization', async () => {
     const response = await service.login(personal, { ip: '127.0.0.1' });
-    expect(sessions.create).toHaveBeenCalledWith(account.id, { ip: '127.0.0.1' }, undefined);
+    expect(sessions.create).toHaveBeenCalledWith(
+      account.id,
+      { ip: '127.0.0.1' },
+      undefined,
+      expect.objectContaining({ id: account.id, roles: [Role.CUSTOMER] }),
+    );
     expect(organizations.requireActiveMembership).not.toHaveBeenCalled();
     expect(jwt.sign).toHaveBeenCalledWith({
       sub: account.id,
@@ -99,7 +104,12 @@ describe('AuthService', () => {
   it('binds a tenant session only after validating current membership and stored roles', async () => {
     const response = await service.login(personal, {}, 'org-A');
     expect(organizations.requireActiveMembership).toHaveBeenCalledWith(account.id, 'org-A');
-    expect(sessions.create).toHaveBeenCalledWith(account.id, {}, 'org-A');
+    expect(sessions.create).toHaveBeenCalledWith(
+      account.id,
+      {},
+      'org-A',
+      expect.objectContaining({ organizationId: 'org-A', roles: [Role.MANAGER] }),
+    );
     expect(jwt.sign).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org-A', roles: [Role.MANAGER] }),
     );

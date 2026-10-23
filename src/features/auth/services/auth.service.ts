@@ -89,7 +89,12 @@ export class AuthService {
           ? undefined
           : await this.organizations.requireActiveMembership(account.id, organizationId);
       const identity = access ? this.tenantIdentity(account, access) : actor;
-      const session = await this.sessions.create(account.id, metadata, access?.organizationId);
+      const session = await this.sessions.create(
+        account.id,
+        metadata,
+        access?.organizationId,
+        identity,
+      );
       actor = { ...identity, sessionId: session.sessionId };
       pair = this.issueTokenPair(identity, session.sessionId, session.refreshToken);
     } catch (error) {

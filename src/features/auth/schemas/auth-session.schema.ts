@@ -34,6 +34,13 @@ export class AuthSession {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Organization', default: null, immutable: true })
   organizationId: Types.ObjectId | null;
 
+  // Receipt of the organizational configuration observed by atomic admission (absent for personal/legacy).
+  @Prop({ type: Number, immutable: true, min: 0 })
+  admissionVersion?: number;
+
+  @Prop({ type: Number, immutable: true, min: 1 })
+  admissionSequence?: number;
+
   @Prop({ required: true })
   currentTokenId: string;
 

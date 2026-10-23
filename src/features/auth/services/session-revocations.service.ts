@@ -10,6 +10,7 @@ import {
   SessionRevocation,
 } from '../schemas/session-revocation.schema';
 import { isSessionId } from '../tokens/refresh-token';
+import { SessionSerializationService } from './session-serialization.service';
 
 export interface RevocationActor {
   id: string;
@@ -22,6 +23,7 @@ export class SessionRevocationsService implements OnModuleInit {
   constructor(
     @InjectModel(SessionRevocation.name) private readonly records: Model<SessionRevocation>,
     private readonly context: AuditContext,
+    private readonly serialization: SessionSerializationService,
   ) {}
 
   async onModuleInit() {
@@ -34,8 +36,24 @@ export class SessionRevocationsService implements OnModuleInit {
     return new Types.ObjectId(value);
   }
   async assertActive(session: AuthSession) {
-    if (!(session.createdAt instanceof Date) || !Number.isFinite(session.createdAt.getTime()))
+    if (
+      !(session.createdAt instanceof Date) ||
+      !Number.isFinite(session.createdAt.getTime()) ||
+      (session.admissionSequence !== undefined &&
+        (!Number.isSafeInteger(session.admissionSequence) || session.admissionSequence < 1))
+    )
       throw new UnauthorizedException('Invalid session metadata');
+    const cutoff = Number.isSafeInteger(session.admissionSequence)
+      ? {
+          $expr: {
+            $cond: [
+              { $isNumber: '$revokedThroughSequence' },
+              { $gte: ['$revokedThroughSequence', session.admissionSequence] },
+              { $gte: ['$revokedBefore', session.createdAt] },
+            ],
+          },
+        }
+      : { revokedBefore: { $gte: session.createdAt } };
     const alternatives: Record<string, unknown>[] = [
       {
         scope: RevocationScope.SESSION,
@@ -45,7 +63,7 @@ export class SessionRevocationsService implements OnModuleInit {
       {
         scope: RevocationScope.USER,
         targetUserId: session.userId,
-        revokedBefore: { $gte: session.createdAt },
+        ...cutoff,
         excludedSessionId: { $ne: session.sessionId },
       },
     ];
@@ -53,7 +71,7 @@ export class SessionRevocationsService implements OnModuleInit {
       alternatives.push({
         scope: RevocationScope.ORGANIZATION,
         organizationId: session.organizationId,
-        revokedBefore: { $gte: session.createdAt },
+        ...cutoff,
       });
     if (await this.records.exists({ $or: alternatives }).read('primary').exec())
       throw new UnauthorizedException('Invalid or inactive session');
@@ -61,11 +79,24 @@ export class SessionRevocationsService implements OnModuleInit {
 
   // Same predicate as assertActive, evaluated before pagination on the MongoDB server.
   activeLookup(): PipelineStage[] {
+    const cutoff = {
+      $cond: [
+        { $and: [{ $isNumber: '$revokedThroughSequence' }, { $isNumber: '$$sequence' }] },
+        { $gte: ['$revokedThroughSequence', '$$sequence'] },
+        { $gte: ['$revokedBefore', '$$born'] },
+      ],
+    };
     return [
       {
         $lookup: {
           from: 'auth_session_revocations',
-          let: { sid: '$sessionId', uid: '$userId', org: '$organizationId', born: '$createdAt' },
+          let: {
+            sid: '$sessionId',
+            uid: '$userId',
+            org: '$organizationId',
+            born: '$createdAt',
+            sequence: '$admissionSequence',
+          },
           pipeline: [
             {
               $match: {
@@ -82,7 +113,7 @@ export class SessionRevocationsService implements OnModuleInit {
                       $and: [
                         { $eq: ['$scope', RevocationScope.USER] },
                         { $eq: ['$targetUserId', '$$uid'] },
-                        { $gte: ['$revokedBefore', '$$born'] },
+                        cutoff,
                         { $ne: [{ $ifNull: ['$excludedSessionId', ''] }, '$$sid'] },
                       ],
                     },
@@ -91,7 +122,7 @@ export class SessionRevocationsService implements OnModuleInit {
                         { $eq: ['$scope', RevocationScope.ORGANIZATION] },
                         { $ne: [{ $ifNull: ['$$org', null] }, null] },
                         { $eq: ['$organizationId', '$$org'] },
-                        { $gte: ['$revokedBefore', '$$born'] },
+                        cutoff,
                       ],
                     },
                   ],
@@ -158,9 +189,21 @@ export class SessionRevocationsService implements OnModuleInit {
       actorOrganizationId: actor?.organizationId ? this.oid(actor.organizationId) : null,
     };
     try {
-      // The acknowledged insert itself revokes; no audit/revocation dual-write window.
-      const [saved] = await this.records.create([record], {
-        writeConcern: { w: 'majority', j: true },
+      // Same serialization as admission/configuration; the rule remains the authority.
+      const saved = await this.serialization.run(async (session, serverNow, sequence) => {
+        const [created] = await this.records.create(
+          [
+            {
+              ...record,
+              occurredAt: serverNow,
+              ...(rule.scope !== RevocationScope.SESSION
+                ? { revokedBefore: serverNow, revokedThroughSequence: sequence }
+                : {}),
+            },
+          ],
+          { session },
+        );
+        return created;
       });
       return {
         revocationId: saved._id.toString(),

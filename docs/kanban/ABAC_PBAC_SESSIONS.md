@@ -14,14 +14,14 @@
 - [ ] [#14 Ambientes, observabilidade e recuperação](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — operação proporcional, secrets/permissões, alertas e restore ensaiado. [Plano](../issues/ENVIRONMENTS_OBSERVABILITY_RECOVERY.md).
 - [ ] [#15 Gestão de funcionários e vínculos empresariais](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — delegação e revogação seletiva, preservando identidade pessoal e B. [Plano](../issues/EMPLOYEE_MEMBERSHIP_MANAGEMENT.md).
 
-- [ ] #17–#23: planejamento da #12, preservado em Backlog; próximo ticket #17 somente após concluir #16 e nova autorização. Não iniciar automaticamente.
+- [ ] #18–#23: planejamento da #12, preservado em Backlog; NÃO iniciado nesta execução.
 - [ ] #24: performance independente, p95 < 300 ms sob carga documentada; sem benchmark nesta entrega.
 
 #13–#15 preservadas em Backlog, sem implementação antecipada. O planejamento atual e dependências constam nas issues nativas.
 
 ## Em andamento / Em revisão
 
-Nenhum item em execução após #16. Próximo lógico #17, mantido em Backlog e NÃO iniciado; precisa de nova autorização.
+- [ ] #17 / 12.2: implementação e validação na branch `feat/issue-17-atomic-session-admission`, baseline main `215138b`; aguardando aprovação do responsável ANTES de PR/merge. Transação/replica set obrigatório, sem reservas duráveis, revogação automática ou antecipação da #18. [Estudo e evidências](../authorization/ATOMIC_SESSION_ADMISSION_STUDY.md). Não marcar Done nem encerrar antes de integração aprovada/revalidação na main.
 
 ## Concluído
 

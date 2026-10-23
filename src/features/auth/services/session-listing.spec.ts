@@ -40,6 +40,9 @@ describe('Session listing — mocked aggregate, not proof of MongoDB isolation',
     service = new AuthSessionsService(
       { aggregate } as unknown as Model<AuthSession>,
       { activeLookup: () => [] } as unknown as SessionRevocationsService,
+      { assertClock: async () => undefined } as any,
+      undefined,
+      undefined,
     );
   });
   it('always filters owner/expiry and projects only public metadata before lookup/pagination', async () => {
@@ -48,13 +51,14 @@ describe('Session listing — mocked aggregate, not proof of MongoDB isolation',
     expect(pipeline[0].$match).toEqual({
       userId: new Types.ObjectId(userId),
       revokedAt: null,
-      expiresAt: { $gt: expect.any(Date) },
+      $expr: { $gt: ['$expiresAt', '$$NOW'] },
       createdAt: { $type: 'date' },
     });
     expect(pipeline[1]).toEqual({ $sort: { _id: -1 } });
     expect(Object.keys(pipeline[2].$project).sort()).toEqual(
       [
         '_id',
+        'admissionSequence',
         'userId',
         'sessionId',
         'organizationId',

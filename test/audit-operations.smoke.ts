@@ -22,6 +22,11 @@ import {
   SessionRevocation,
   SessionRevocationSchema,
 } from '../src/features/auth/schemas/session-revocation.schema';
+import {
+  SessionSerialization,
+  SessionSerializationSchema,
+} from '../src/features/auth/schemas/session-serialization.schema';
+import { SessionSerializationService } from '../src/features/auth/services/session-serialization.service';
 
 async function mustDeny(operation: () => Promise<unknown>) {
   try {
@@ -62,11 +67,20 @@ async function main() {
       await model.createIndexes();
       await verifyAuditIndexes(model);
     }
+    const fence = admin.model(SessionSerialization.name, options(SessionSerializationSchema));
+    await fence.createCollection();
+    await fence.create({ _id: 'animal-feed-warehouse', sequence: 0, serverNow: new Date() });
     const privileges = (actions: string[]) =>
       collections.map((collection) => ({ resource: { db: database, collection }, actions }));
     await admin.db.command({
       createRole: 'audit_writer',
-      privileges: privileges(['find', 'insert', 'listIndexes']),
+      privileges: [
+        ...privileges(['find', 'insert', 'listIndexes']),
+        {
+          resource: { db: database, collection: 'session_serialization' },
+          actions: ['find', 'update', 'listIndexes'],
+        },
+      ],
       roles: [],
     });
     await admin.db.command({
@@ -130,6 +144,40 @@ async function main() {
       throw new Error('Restricted configuration read failed');
     await mustDeny(() =>
       configuration.collection.createIndex({ occurredAt: 1 }, { expireAfterSeconds: 1 }),
+    );
+    const runtimeFence = writer.model<SessionSerialization>(
+      SessionSerialization.name,
+      options(SessionSerializationSchema),
+    );
+    const coordinator = new SessionSerializationService(runtimeFence);
+    await coordinator.onModuleInit();
+    const previous = await writerModel.countDocuments();
+    try {
+      await coordinator.run(async (session) => {
+        await store.record(
+          AuditEvent.SESSION_ADMISSION,
+          'allowed',
+          'service',
+          undefined,
+          undefined,
+          session,
+        );
+        throw new Error('Deliberate transactional abort');
+      });
+      throw new Error('Expected transaction abort');
+    } catch (error) {
+      if ((error as Error).message !== 'Session coordination unavailable') throw error;
+    }
+    if ((await writerModel.countDocuments()) !== previous)
+      throw new Error('Audit transaction did not roll back');
+    await coordinator.run(async (session) => {
+      const row = await configuration.findOne().session(session).lean();
+      await configuration.create([{ ...row, _id: new Types.ObjectId(), version: 2 }], { session });
+    });
+    await mustDeny(() => runtimeFence.collection.insertOne({ _id: 'forbidden' } as any));
+    await mustDeny(() => runtimeFence.collection.deleteMany({}));
+    await mustDeny(() =>
+      runtimeFence.collection.createIndex({ serverNow: 1 }, { expireAfterSeconds: 1 }),
     );
     await store.record(AuditEvent.LOGIN, 'denied', 'auth');
     // A restricted writer can append/read, but cannot erase history or add a destructive TTL.

@@ -1,16 +1,22 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, PipelineStage, Types } from 'mongoose';
+import { AuditEvent } from '@/common/audit/security-audit.schema';
+import { AuditActor, SecurityAuditService } from '@/common/audit/security-audit.service';
 import { SessionPage } from '../interfaces/session-summary.interface';
 import { AuthSession, SessionRevocationReason } from '../schemas/auth-session.schema';
+import { SessionLimitRevision } from '../schemas/session-limit-revision.schema';
 import { RevocationAction } from '../schemas/session-revocation.schema';
 import { generateRefreshToken, isSessionId, parseRefreshToken } from '../tokens/refresh-token';
+import { readOrganizationSessionLimit } from './session-limit-reader';
 import { SessionRevocationsService } from './session-revocations.service';
+import { SessionSerializationService } from './session-serialization.service';
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_SESSION_ROTATIONS = 1000;
@@ -24,34 +30,86 @@ export class AuthSessionsService {
   constructor(
     @InjectModel(AuthSession.name) private readonly sessions: Model<AuthSession>,
     private readonly revocations: SessionRevocationsService,
+    private readonly serialization: SessionSerializationService,
+    @InjectModel(SessionLimitRevision.name) private readonly revisions: Model<SessionLimitRevision>,
+    private readonly audit: SecurityAuditService,
   ) {}
 
-  async create(userId: string, metadata: SessionMetadata = {}, organizationId?: string) {
+  async create(
+    userId: string,
+    metadata: SessionMetadata = {},
+    organizationId?: string,
+    verifiedActor?: AuditActor,
+  ) {
     if (
       !/^[a-f0-9]{24}$/i.test(userId) ||
-      (organizationId !== undefined && !/^[a-f0-9]{24}$/i.test(organizationId))
+      (organizationId !== undefined && !/^[a-f0-9]{24}$/i.test(organizationId)) ||
+      (verifiedActor &&
+        (verifiedActor.id !== userId || verifiedActor.organizationId !== organizationId))
     )
       throw this.invalidSession();
     const credential = generateRefreshToken();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
-    const saved = await this.sessions.create({
-      sessionId: credential.sessionId,
-      userId: new Types.ObjectId(userId),
-      organizationId: organizationId === undefined ? null : new Types.ObjectId(organizationId),
-      currentTokenId: credential.tokenId,
-      currentTokenHash: credential.tokenHash,
-      lastUsedAt: now,
-      expiresAt,
-      ip: metadata.ip?.slice(0, 128),
-      userAgent: metadata.userAgent?.slice(0, 512),
+    // Stable credentials across transaction retries; nothing is returned before commit.
+    const saved = await this.serialization.run(async (session, now, sequence) => {
+      const scope = {
+        userId: new Types.ObjectId(userId),
+        organizationId: organizationId === undefined ? null : new Types.ObjectId(organizationId),
+      };
+      const policy =
+        organizationId === undefined
+          ? undefined
+          : await readOrganizationSessionLimit(this.revisions, organizationId, session);
+      if (policy) {
+        const rows = await this.sessions
+          .aggregate<{ total: number }>([
+            { $match: { ...scope, revokedAt: null, expiresAt: { $gt: now } } },
+            ...this.revocations.activeLookup(),
+            { $count: 'total' },
+          ])
+          .session(session)
+          .exec();
+        if ((rows[0]?.total ?? 0) >= policy.limit)
+          throw new ConflictException('Session limit reached');
+      }
+      const [created] = await this.sessions.create(
+        [
+          {
+            ...scope,
+            sessionId: credential.sessionId,
+            currentTokenId: credential.tokenId,
+            currentTokenHash: credential.tokenHash,
+            lastUsedAt: now,
+            createdAt: now,
+            expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+            admissionVersion: policy?.version,
+            admissionSequence: sequence,
+            ip: metadata.ip?.slice(0, 128),
+            userAgent: metadata.userAgent?.slice(0, 512),
+          },
+        ],
+        { session },
+      );
+      await this.audit.record(
+        AuditEvent.SESSION_ADMISSION,
+        'allowed',
+        'service',
+        verifiedActor ? { ...verifiedActor, sessionId: credential.sessionId } : undefined,
+        undefined,
+        session,
+      );
+      return created;
     });
     await this.revocations.assertActive(saved);
-    return { sessionId: credential.sessionId, refreshToken: credential.refreshToken, expiresAt };
+    return {
+      sessionId: credential.sessionId,
+      refreshToken: credential.refreshToken,
+      expiresAt: saved.expiresAt,
+    };
   }
 
   async findActive(sessionId: string, userId: string) {
     if (!isSessionId(sessionId) || !/^[a-f0-9]{24}$/i.test(userId)) throw this.invalidSession();
+    await this.serialization.assertClock();
     const session = await this.sessions
       .findOne({ sessionId, userId: new Types.ObjectId(userId), ...this.activeFilter() })
       .exec();
@@ -64,9 +122,10 @@ export class AuthSessionsService {
   async findTarget(sessionId: string, scope: { userId?: string; organizationId?: string }) {
     if (!isSessionId(sessionId)) throw new NotFoundException('Session not found');
     const filter = this.scopeFilter(scope);
+    await this.serialization.assertClock();
     const session = await this.sessions
       .findOne({ sessionId, ...filter, ...this.activeFilter() })
-      .select('sessionId userId organizationId createdAt expiresAt')
+      .select('sessionId userId organizationId createdAt expiresAt admissionSequence')
       .exec();
     if (!session) throw new NotFoundException('Session not found');
     try {
@@ -119,6 +178,7 @@ export class AuthSessionsService {
       (before !== undefined && (typeof before !== 'string' || !/^[a-f0-9]{24}$/i.test(before)))
     )
       throw new BadRequestException('Invalid session pagination');
+    await this.serialization.assertClock();
     const pipeline: PipelineStage[] = [
       {
         $match: {
@@ -140,6 +200,7 @@ export class AuthSessionsService {
           createdAt: 1,
           lastUsedAt: 1,
           expiresAt: 1,
+          admissionSequence: 1,
         },
       },
       ...this.revocations.activeLookup(),
@@ -178,6 +239,7 @@ export class AuthSessionsService {
   async rotate(refreshToken: string) {
     const presented = parseRefreshToken(refreshToken);
     if (!presented) throw this.invalidSession();
+    await this.serialization.assertClock();
     const snapshot = await this.sessions
       .findOne({ sessionId: presented.sessionId, ...this.activeFilter() })
       .exec();
@@ -193,7 +255,7 @@ export class AuthSessionsService {
           currentTokenId: presented.tokenId,
           currentTokenHash: presented.tokenHash,
           rotationVersion: { $lt: MAX_SESSION_ROTATIONS },
-          ...this.activeFilter(now),
+          ...this.activeFilter(),
         },
         {
           $set: { currentTokenId: next.tokenId, currentTokenHash: next.tokenHash, lastUsedAt: now },
@@ -257,8 +319,8 @@ export class AuthSessionsService {
     }
     throw this.invalidSession();
   }
-  private activeFilter(now = new Date()) {
-    return { revokedAt: null, expiresAt: { $gt: now } };
+  private activeFilter() {
+    return { revokedAt: null, $expr: { $gt: ['$expiresAt', '$$NOW'] } };
   }
   private invalidSession() {
     return new UnauthorizedException('Invalid or inactive session');

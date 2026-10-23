@@ -10,6 +10,7 @@ import {
 } from '../schemas/session-revocation.schema';
 import { generateRefreshToken } from '../tokens/refresh-token';
 import { SessionRevocationsService } from './session-revocations.service';
+import { SessionSerializationService } from './session-serialization.service';
 
 describe('Authoritative revocation/audit records — mocked persistence', () => {
   const actor = {
@@ -40,6 +41,7 @@ describe('Authoritative revocation/audit records — mocked persistence', () => 
     service = new SessionRevocationsService(
       db as unknown as Model<SessionRevocation>,
       new AuditContext(),
+      { run: (work) => work(undefined, new Date(), 1) } as unknown as SessionSerializationService,
     );
   });
   it('checks specific/user/organization predicates and excludes the current SID only for others', async () => {
@@ -95,7 +97,7 @@ describe('Authoritative revocation/audit records — mocked persistence', () => 
       targetSessionId: session.sessionId,
       occurredAt: expect.any(Date),
     });
-    expect(options).toEqual({ writeConcern: { w: 'majority', j: true } });
+    expect(options).toEqual({ session: undefined });
     expect(Object.keys(record)).not.toEqual(
       expect.arrayContaining(['password', 'tokenHash', 'refreshToken']),
     );
