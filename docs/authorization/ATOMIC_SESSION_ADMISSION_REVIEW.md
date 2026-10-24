@@ -4,6 +4,8 @@
 
 Revisão solicitada sobre a primeira entrega `dbc692287cc082cd4f4de4026ede88bd381f21e0`, na mesma branch `feat/issue-17-atomic-session-admission`. O responsável autorizou corrigir falhas comprovadas, testar/documentar e depois criar PR para main. **NÃO autorizou merge nem encerramento da issue.** Main permanece `215138b`; #1–#6/#16 preservadas, #18 não iniciada. Nenhum banco/conta/email real alterado.
 
+**PR aberta para main: [#26](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/26).** Correção de código/revisão `7b949e8893e0f589e9333f881df0687085945a40`, após primeira entrega `dbc6922`. PR OPEN, sem auto-merge e sem referência de encerramento automático da issue. #17 permanece OPEN/In review; main não foi alterada.
+
 Este relatório prevalece sobre os estados históricos “sem autorização para PR” do estudo inicial. A criação de PR não é aceite de produção nem permissão de implantação.
 
 ## 1. Corrida assertClock → sessão — COMPROVADA e corrigida
@@ -62,6 +64,8 @@ Não dividir o coordenador por tenant sem reprojetar e provar corridas com regra
 ### Risco confirmado
 
 O código anterior da main não conhece o coordenador. Somente criar a coleção, reiniciar algumas instâncias ou checar versão no código novo NÃO impede um binário/job antigo com credencial válida de inserir sessões/regras/revisões fora do protocolo. Isso invalida a prova de atomicidade. Alterar só a senha pode não retirar as permissões de conexões já autenticadas. Automatic rollback com imagem antiga e credencial nova também reintroduz o bypass.
+
+As identidades deste runbook são **principais do MongoDB**, não contas de funcionários da loja; não é recuperação de senha da #19.
 
 O smoke COM autenticação provou a barreira relevante no banco descartável: um principal legado separado inseriu antes da retirada de suas roles; após `updateUser` retirando suas roles, operações novas de insert/update na conexão já aberta foram NEGADAS. O principal novo/restrito continuou operando, inclusive readSessions snapshot/lookup, transação e exportação. Isso é prova isolada, NÃO configuração de produção nem cancelamento de operação já em voo.
 

@@ -49,7 +49,7 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 **Escopo histórico da #16:** somente configuração, sem revogação na redução. A admissão da #17 está implementada e revisada nesta branch, com PR autorizada e merge pendente de aprovação (seção abaixo); substituição da #18 NÃO implementada. Revisões append-only unem valor e recibo de auditoria; leitura primary/majority sem cache. Antes da primeira API desta versão, operador executa `session-limits:initialize` com `SESSION_LIMITS_MONGO_URL` explícita e credencial separada. Runtime: find/insert/listIndexes nessa coleção, sem update/delete/TTL/DDL. Não usar banco real durante testes. Contrato, limites e falhas: [estudo #16](docs/authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
 
-### Admissão atômica — #17 / 12.2 (PR autorizada; merge depende de aprovação)
+### Admissão atômica — #17 / 12.2 (PR #26 aberta; merge depende de aprovação)
 
 Novos logins organizacionais respeitam o limite por identidade/organização entre instâncias. Transação MongoDB snapshot/majority/journal serializa admissão, configuração e revogação; conta sessões realmente ativas com as regras autoritativas, não um contador separado. No limite: **409**, sem credenciais/desafio de substituição. Redução preserva sessões e bloqueia novas admissões até haver capacidade. Pessoal permanece independente, sem quota numérica aprovada/fallback empresarial.
 

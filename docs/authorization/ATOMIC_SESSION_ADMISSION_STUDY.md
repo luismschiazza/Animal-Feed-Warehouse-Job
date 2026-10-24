@@ -4,6 +4,8 @@
 
 Implementação na branch `feat/issue-17-atomic-session-admission`, baseline `215138ba8d554d8b28c05a4dc5a0dea1ee250ddb`. #1–#6 e #16 integradas e preservadas. **Autorização mais recente: revisar relógio/contenção/rollout, corrigir/testar/documentar e CRIAR PR para main. SEM MERGE e SEM ENCERRAR #17 antes de nova aprovação.** #18 não iniciada. Não encontrado AGENTS.md no projeto/ancestrais; continuidade externa lida.
 
+**PR atual: [#26 — OPEN para main](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/26), sem merge/encerramento, aguardando revisão do responsável.**
+
 **Revisão atual:** [relatório pré-PR](ATOMIC_SESSION_ADMISSION_REVIEW.md) documenta TOCTOU comprovada e corrigida, leitura única snapshot sem escrita global por JWT, revalidação pós-CAS, contagem limitada, prova de contenção e barreira operacional de identidades legadas. Novos resultados: 258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E e smokes/build/lint/TypeScript aprovados NA BRANCH. O histórico da primeira entrega abaixo (dbc6922) é preservado; a revisão vinculada prevalece.
 
 ## Desenho registrado antes do código (histórico; revisão vinculada prevalece)

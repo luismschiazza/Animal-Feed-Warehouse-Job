@@ -21,7 +21,7 @@
 
 ## Em andamento / Em revisão
 
-- [ ] #17 / 12.2: implementação e validação na branch `feat/issue-17-atomic-session-admission`, baseline main `215138b`; responsável autorizou revisão adicional e criação de PR para main, mas NÃO merge/encerramento. TOCTOU comprovada/corrigida, contenção/rollout revisados; 258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E e smokes aprovados NA BRANCH. Transação/replica set obrigatório, sem reservas duráveis, revogação automática ou antecipação da #18. [Revisão pré-PR](../authorization/ATOMIC_SESSION_ADMISSION_REVIEW.md). [Estudo e evidências](../authorization/ATOMIC_SESSION_ADMISSION_STUDY.md). Não marcar Done nem encerrar antes de integração aprovada/revalidação na main.
+- [ ] #17 / 12.2: implementação e validação na branch `feat/issue-17-atomic-session-admission`, baseline main `215138b`; [PR #26 OPEN para main](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/26), correção/revisão 7b949e8; responsável autorizou criação da PR, mas NÃO merge/encerramento. TOCTOU comprovada/corrigida, contenção/rollout revisados; 258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E e smokes aprovados NA BRANCH. Transação/replica set obrigatório, sem reservas duráveis, revogação automática ou antecipação da #18. [Revisão pré-PR](../authorization/ATOMIC_SESSION_ADMISSION_REVIEW.md). [Estudo e evidências](../authorization/ATOMIC_SESSION_ADMISSION_STUDY.md). Não marcar Done nem encerrar antes de integração aprovada/revalidação na main.
 
 ## Concluído
 
