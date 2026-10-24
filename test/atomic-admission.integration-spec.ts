@@ -474,6 +474,57 @@ describe('#17 atomic admission — two independent HTTP instances / real replica
     }
     await login().expect(201);
   });
+  it('keeps snapshot session reads available under write contention; both A/B admissions fail bounded and recover', async () => {
+    const first = await login().expect(201),
+      second = await login(1, b).expect(201);
+    const before = await model('SessionSerialization')
+      .findById(SESSION_LIMIT_APPLICATION)
+      .lean<{ sequence: number }>();
+    await db.db.admin().command({ setParameter: 1, transactionLifetimeLimitSeconds: 60 });
+    const held = await db.startSession();
+    held.startTransaction();
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+      await model('SessionSerialization').updateOne(
+        { _id: SESSION_LIMIT_APPLICATION },
+        { $inc: { sequence: 1 } },
+        { session: held },
+      );
+      const reads = Promise.all(
+        Array.from({ length: 8 }, (_, i) =>
+          request(apps[i % 2].getHttpServer())
+            .get('/api/auth/sessions')
+            .auth((i % 2 ? second : first).body.access_token, { type: 'bearer' })
+            .expect(200),
+        ),
+      );
+      await Promise.race([
+        reads,
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('Read-only session queries blocked behind write fence')),
+            5000,
+          );
+        }),
+      ]);
+      clearTimeout(timer);
+      expect(
+        (await model('SessionSerialization').findById(SESSION_LIMIT_APPLICATION)).sequence,
+      ).toBe(before.sequence);
+      const denied = await Promise.all([login(0, a), login(1, b)]);
+      expect(denied.map((r) => r.status)).toEqual([503, 503]);
+      for (const response of denied) expect(response.body).not.toHaveProperty('refresh_token');
+      expect(await model('AuthSession').countDocuments()).toBe(2);
+      expect(await model('SessionRevocation').countDocuments()).toBe(0);
+    } finally {
+      clearTimeout(timer);
+      await held.abortTransaction();
+      await held.endSession();
+      await db.db.admin().command({ setParameter: 1, transactionLifetimeLimitSeconds: 5 });
+    }
+    await login(1, a).expect(201);
+    await login(0, b).expect(201);
+  });
   it('retries a real dropped commit connection without duplicating sessions or admission receipts', async () => {
     await db.db.admin().command({
       configureFailPoint: 'failCommand',
@@ -492,6 +543,96 @@ describe('#17 atomic admission — two independent HTTP instances / real replica
         result: 'allowed',
       }),
     ).toBe(1);
+  });
+  it('rejects a watermark regression introduced AFTER the old separate clock check', async () => {
+    const one = await login().expect(201);
+    const service = apps[1].get(AuthSessionsService);
+    const collection = model('SessionSerialization');
+    const before = await collection.findById(SESSION_LIMIT_APPLICATION).lean<{ serverNow: Date }>();
+    // Reproduce the two commands used before review: clock passes, watermark changes,
+    // then the independent session query still returns an active row (the demonstrated bug).
+    const [check] = await collection
+      .aggregate([
+        { $match: { _id: SESSION_LIMIT_APPLICATION } },
+        { $project: { usable: { $gte: ['$$NOW', '$serverNow'] } } },
+      ])
+      .readConcern('majority');
+    expect(check.usable).toBe(true);
+    await collection.updateOne(
+      { _id: SESSION_LIMIT_APPLICATION },
+      { $set: { serverNow: new Date(Date.now() + 3_600_000) } },
+    );
+    try {
+      expect(
+        await model('AuthSession').findOne({
+          sessionId: one.body.session_id,
+          revokedAt: null,
+          $expr: { $gt: ['$expiresAt', '$$NOW'] },
+        }),
+      ).not.toBeNull();
+      await expect(service.findActive(one.body.session_id, uid.toString())).rejects.toThrow(
+        'clock unavailable',
+      );
+      await expect(
+        service.findTarget(one.body.session_id, { userId: uid.toString() }),
+      ).rejects.toThrow('clock unavailable');
+      await expect(service.listOwnedActive(uid.toString(), one.body.session_id)).rejects.toThrow(
+        'clock unavailable',
+      );
+      await expect(
+        service.listOrganizationActive(a.toString(), one.body.session_id),
+      ).rejects.toThrow('clock unavailable');
+      await expect(service.rotate(one.body.refresh_token)).rejects.toThrow('clock unavailable');
+      expect(
+        (await model('AuthSession').findOne({ sessionId: one.body.session_id })).rotationVersion,
+      ).toBe(0);
+    } finally {
+      await collection.updateOne(
+        { _id: SESSION_LIMIT_APPLICATION },
+        { $set: { serverNow: before.serverNow } },
+      );
+    }
+    const active = await service.findActive(one.body.session_id, uid.toString());
+    expect(active).not.toHaveProperty('currentTokenHash');
+    expect(active).not.toHaveProperty('consumedTokens');
+  });
+  it('returns no refreshed credential if the watermark changes after the CAS; the consumed verifier is not restored', async () => {
+    const one = await login().expect(201),
+      service = apps[1].get(AuthSessionsService);
+    const fence = model('SessionSerialization');
+    const before = await fence.findById(SESSION_LIMIT_APPLICATION).lean<{ serverNow: Date }>();
+    const sessionModel = apps[1].get<Connection>(getConnectionToken()).models.AuthSession;
+    const original = sessionModel.findOneAndUpdate.bind(sessionModel);
+    const spy = jest
+      .spyOn(sessionModel, 'findOneAndUpdate')
+      .mockImplementation((...args: any[]) => {
+        const query = original(...args),
+          exec = query.exec.bind(query);
+        query.exec = (async () => {
+          const result = await exec();
+          await fence.updateOne(
+            { _id: SESSION_LIMIT_APPLICATION },
+            { $set: { serverNow: new Date(Date.now() + 3_600_000) } },
+          );
+          return result;
+        }) as any;
+        return query;
+      });
+    try {
+      await expect(service.rotate(one.body.refresh_token)).rejects.toThrow('clock unavailable');
+      expect(
+        (await model('AuthSession').findOne({ sessionId: one.body.session_id })).rotationVersion,
+      ).toBe(1);
+      expect(await model('SessionRevocation').countDocuments()).toBe(0);
+    } finally {
+      spy.mockRestore();
+      await fence.updateOne(
+        { _id: SESSION_LIMIT_APPLICATION },
+        { $set: { serverNow: before.serverNow } },
+      );
+    }
+    await expect(service.rotate(one.body.refresh_token)).rejects.toThrow();
+    expect(await model('SessionRevocation').countDocuments({ action: 'refresh_reuse' })).toBe(1);
   });
   it('blocks admissions and existing authentication on database clock rollback without revoking anything', async () => {
     const one = await login().expect(201);

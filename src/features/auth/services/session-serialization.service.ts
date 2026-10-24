@@ -5,12 +5,13 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Model } from 'mongoose';
+import { ClientSession, Model, PipelineStage } from 'mongoose';
 import { verifyAuditIndexes } from '@/common/audit/audit-indexes';
 import { SESSION_LIMIT_APPLICATION } from '../schemas/session-limit-revision.schema';
 import { SessionSerialization } from '../schemas/session-serialization.schema';
 
 export const SESSION_TRANSACTION_TIMEOUT_MS = 10_000;
+export type SessionReadStage = Exclude<PipelineStage, PipelineStage.Merge | PipelineStage.Out>;
 
 @Injectable()
 export class SessionSerializationService implements OnModuleInit {
@@ -34,12 +35,12 @@ export class SessionSerializationService implements OnModuleInit {
       throw new Error('Session serialization must be initialized by the operator');
   }
 
-  // A persisted high-water mark prevents clock rollback from reviving expired sessions
-  // while admitting replacements. No local wall-clock/cache is authoritative.
-  async assertClock() {
+  // Clock and session data MUST share one server-side command/snapshot. A separate
+  // assertClock followed by findOne has a TOCTOU window. This is read-only: no fence write.
+  async readSessions<T>(pipeline: SessionReadStage[]): Promise<T[]> {
     try {
       const [row] = await this.fence
-        .aggregate<{ usable: boolean }>([
+        .aggregate<{ usable: boolean; items: T[] }>([
           { $match: { _id: SESSION_LIMIT_APPLICATION } },
           {
             $project: {
@@ -51,11 +52,21 @@ export class SessionSerializationService implements OnModuleInit {
               },
             },
           },
+          {
+            $lookup: {
+              from: 'auth_sessions',
+              let: { clockUsable: '$usable' },
+              pipeline: [{ $match: { $expr: { $eq: ['$$clockUsable', true] } } }, ...pipeline],
+              as: 'items',
+            },
+          },
         ])
         .read('primary')
-        .readConcern('majority')
+        .readConcern('snapshot')
+        .option({ maxTimeMS: 5_000, timeoutMS: SESSION_TRANSACTION_TIMEOUT_MS })
         .exec();
       if (!row?.usable) throw new Error('Clock regression or missing metadata');
+      return row.items;
     } catch {
       throw new ServiceUnavailableException('Session clock unavailable');
     }
@@ -75,9 +86,14 @@ export class SessionSerializationService implements OnModuleInit {
               {
                 _id: SESSION_LIMIT_APPLICATION,
                 sequence: { $gte: 0, $lt: Number.MAX_SAFE_INTEGER },
-                $expr: { $gte: ['$$NOW', '$serverNow'] },
+                $expr: {
+                  $and: [
+                    { $eq: [{ $type: '$serverNow' }, 'date'] },
+                    { $gte: ['$$NOW', '$serverNow'] },
+                  ],
+                },
               },
-              { $inc: { sequence: 1 }, $currentDate: { serverNow: true } },
+              [{ $set: { sequence: { $add: ['$sequence', 1] }, serverNow: '$$NOW' } }],
               { session, new: true, maxTimeMS: 5_000 },
             )
             .lean()

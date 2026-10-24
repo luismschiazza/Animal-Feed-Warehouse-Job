@@ -40,7 +40,7 @@ describe('Session listing — mocked aggregate, not proof of MongoDB isolation',
     service = new AuthSessionsService(
       { aggregate } as unknown as Model<AuthSession>,
       { activeLookup: () => [] } as unknown as SessionRevocationsService,
-      { assertClock: async () => undefined } as any,
+      { readSessions: (pipeline) => aggregate(pipeline).exec() } as any,
       undefined,
       undefined,
     );

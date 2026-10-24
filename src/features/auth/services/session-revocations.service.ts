@@ -78,7 +78,7 @@ export class SessionRevocationsService implements OnModuleInit {
   }
 
   // Same predicate as assertActive, evaluated before pagination on the MongoDB server.
-  activeLookup(): PipelineStage[] {
+  activeLookup(): (PipelineStage.Lookup | PipelineStage.Match)[] {
     const cutoff = {
       $cond: [
         { $and: [{ $isNumber: '$revokedThroughSequence' }, { $isNumber: '$$sequence' }] },

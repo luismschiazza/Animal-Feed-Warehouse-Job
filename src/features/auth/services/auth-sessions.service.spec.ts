@@ -25,7 +25,10 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
   });
   beforeEach(() => {
     db = {
-      create: jest.fn().mockImplementation(async (rows) => rows),
+      create: jest.fn().mockImplementation(async (rows) => {
+        db.findOne.mockReturnValue(query(rows[0]));
+        return rows;
+      }),
       aggregate: jest.fn().mockReturnValue({ session: () => ({ exec: async () => [] }) }),
       findOne: jest.fn().mockReturnValue(query(null)),
       findOneAndUpdate: jest.fn().mockReturnValue(query(null)),
@@ -41,7 +44,10 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
       rules as unknown as SessionRevocationsService,
       {
         run: (work) => work(undefined, new Date(), 1),
-        assertClock: async () => undefined,
+        readSessions: async (pipeline) => {
+          const row = await db.findOne(pipeline[0].$match).exec();
+          return row ? [row] : [];
+        },
       } as unknown as SessionSerializationService,
       {
         findOne: () => {
@@ -78,6 +84,9 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
     const organizationId = new Types.ObjectId().toString();
     await service.create(userId, {}, organizationId);
     expect(db.create.mock.calls[0][0][0].organizationId.toString()).toBe(organizationId);
+    expect(db.aggregate.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([{ $limit: 3 }, { $count: 'total' }]),
+    );
     await expect(service.create(userId, {}, 'invalid')).rejects.toThrow(UnauthorizedException);
     await expect(service.create('invalid')).rejects.toThrow(UnauthorizedException);
     expect(db.create).toHaveBeenCalledTimes(1);

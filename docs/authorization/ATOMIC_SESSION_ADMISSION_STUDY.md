@@ -2,9 +2,11 @@
 
 ## Estado e autorização
 
-Implementação em revisão na branch `feat/issue-17-atomic-session-admission`, baseline `215138ba8d554d8b28c05a4dc5a0dea1ee250ddb`. #1–#6 e #16 integradas e preservadas. Autorização: somente #17; apresentar evidências ANTES de PR/merge e aguardar aprovação. Não encerrar a issue nem iniciar #18. Não encontrado AGENTS.md no projeto/ancestrais; continuidade externa lida.
+Implementação na branch `feat/issue-17-atomic-session-admission`, baseline `215138ba8d554d8b28c05a4dc5a0dea1ee250ddb`. #1–#6 e #16 integradas e preservadas. **Autorização mais recente: revisar relógio/contenção/rollout, corrigir/testar/documentar e CRIAR PR para main. SEM MERGE e SEM ENCERRAR #17 antes de nova aprovação.** #18 não iniciada. Não encontrado AGENTS.md no projeto/ancestrais; continuidade externa lida.
 
-## Desenho registrado antes do código
+**Revisão atual:** [relatório pré-PR](ATOMIC_SESSION_ADMISSION_REVIEW.md) documenta TOCTOU comprovada e corrigida, leitura única snapshot sem escrita global por JWT, revalidação pós-CAS, contagem limitada, prova de contenção e barreira operacional de identidades legadas. Novos resultados: 258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E e smokes/build/lint/TypeScript aprovados NA BRANCH. O histórico da primeira entrega abaixo (dbc6922) é preservado; a revisão vinculada prevalece.
+
+## Desenho registrado antes do código (histórico; revisão vinculada prevalece)
 
 - Transação MongoDB, snapshot/primary e commit majority/journal. **Replica set obrigatório**; não instalar/provisionar produção. Dependência operacional da #14 explicitada, não implementada como infraestrutura real.
 - Um documento de serialização por aplicação, atualizado PRIMEIRO em cada transação de admissão, alteração de limite e revogação. Conflito de escrita obriga nova tentativa com novo snapshot. O número de sequência NÃO é contador de sessões nem autoridade de revogação.
@@ -90,7 +92,7 @@ Aplicação atual é server-side animal-feed-warehouse; journals/coordenador man
 
 ## Evidências finais e limitações
 
-### Rodada final aprovada na branch (NÃO validação na main)
+### Rodada da primeira entrega dbc6922 (histórico; NÃO validação na main)
 
 | Verificação | Resultado |
 |---|---|
@@ -116,7 +118,7 @@ No teste de expiração, TTL monitor foi desabilitado APENAS no servidor descart
 - Expectativa inicial de refresh 201 corrigida para o contrato existente 200; formatação e tabela `it.each` de teste de clock corrigidas.
 - Uma rodada completa intermediária sofreu timeout do hook/monitor Docker e ECONNRESET; não foi aceita como validação. O servidor descartável permaneceu isolado; rodadas completas posteriores passaram. Rodada final: 94/94, 257/257 e demais itens acima aprovados.
 
-### Revisão e limite do aceite
+### Limite do aceite da primeira entrega dbc6922 (histórico)
 
 Diff revisado em relação à main `215138b`: somente #17, documentação/testes/CLI correlatos; nenhum endpoint de substituição/desafio, recuperação de senha, MFA, worker/outbox ou CRUD comercial adicionado. #16 mantém API/política/versionamento; a melhoria transacional de falha pré-commit foi documentada e testada. #1–#6 continuam cobertas pelas regressões. Sem force-push, reescrita de histórico ou dados reais.
 
