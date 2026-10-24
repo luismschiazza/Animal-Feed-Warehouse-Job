@@ -1,6 +1,10 @@
 # #17 — Revisão pré-PR: relógio, contenção e rollout
 
-## Autorização e escopo
+## Atualização posterior — integração aprovada e revalidada
+
+PR #26 MERGED, merge `d86295c65f5a6522f146f5f35e1dbcdb292359d2`; responsável autorizou integrar e encerrar SOMENTE após reexecutar tudo na main. **258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E e todos os smokes/build/lint/TypeScript/diff passaram NA MAIN.** [Aceite completo](ATOMIC_SESSION_ADMISSION_MAIN_ACCEPTANCE.md). #12 aberta 2/8, #18 não iniciada, nenhuma implantação. Esta autorização substitui a proibição histórica abaixo, preservando os riscos/runbook e limites operacionais.
+
+## Autorização e escopo da revisão pré-PR (histórico)
 
 Revisão solicitada sobre a primeira entrega `dbc692287cc082cd4f4de4026ede88bd381f21e0`, na mesma branch `feat/issue-17-atomic-session-admission`. O responsável autorizou corrigir falhas comprovadas, testar/documentar e depois criar PR para main. **NÃO autorizou merge nem encerramento da issue.** Main permanece `215138b`; #1–#6/#16 preservadas, #18 não iniciada. Nenhum banco/conta/email real alterado.
 

@@ -47,9 +47,11 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 `GET/PATCH /api/auth/organization-session-limit`: SYSTEM_ADMIN do vínculo ativo consulta/altera somente a organização da sessão. Padrão empresarial **3 por usuário/organização**; faixa técnica 1..100 e atualização com `expectedVersion`. Contexto pessoal não herda esse valor e permanece sem política numérica definida.
 
-**Escopo histórico da #16:** somente configuração, sem revogação na redução. A admissão da #17 está implementada e revisada nesta branch, com PR autorizada e merge pendente de aprovação (seção abaixo); substituição da #18 NÃO implementada. Revisões append-only unem valor e recibo de auditoria; leitura primary/majority sem cache. Antes da primeira API desta versão, operador executa `session-limits:initialize` com `SESSION_LIMITS_MONGO_URL` explícita e credencial separada. Runtime: find/insert/listIndexes nessa coleção, sem update/delete/TTL/DDL. Não usar banco real durante testes. Contrato, limites e falhas: [estudo #16](docs/authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
+**Escopo histórico da #16:** somente configuração, sem revogação na redução. A admissão da #17 está integrada pela PR #26 e revalidada na main (seção abaixo); substituição da #18 NÃO implementada. Revisões append-only unem valor e recibo de auditoria; leitura primary/majority sem cache. Antes da primeira API desta versão, operador executa `session-limits:initialize` com `SESSION_LIMITS_MONGO_URL` explícita e credencial separada. Runtime: find/insert/listIndexes nessa coleção, sem update/delete/TTL/DDL. Não usar banco real durante testes. Contrato, limites e falhas: [estudo #16](docs/authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
 
-### Admissão atômica — #17 / 12.2 (PR #26 aberta; merge depende de aprovação)
+### Admissão atômica — #17 / 12.2 (PR #26 integrada e revalidada na main)
+
+Merge `d86295c`: 258 unitários, 97 HTTP/MongoDB, 13 vínculos/provisionamento, 1 E2E e smokes AppModule/ACL autenticada/CLI aprovados novamente NA MAIN, além de build/lint/TypeScript/diff. [Aceite e evidências](docs/authorization/ATOMIC_SESSION_ADMISSION_MAIN_ACCEPTANCE.md). #12 permanece aberta (2/8); #18 NÃO iniciada. Integração não é implantação.
 
 Novos logins organizacionais respeitam o limite por identidade/organização entre instâncias. Transação MongoDB snapshot/majority/journal serializa admissão, configuração e revogação; conta sessões realmente ativas com as regras autoritativas, não um contador separado. No limite: **409**, sem credenciais/desafio de substituição. Redução preserva sessões e bloqueia novas admissões até haver capacidade. Pessoal permanece independente, sem quota numérica aprovada/fallback empresarial.
 
@@ -67,7 +69,7 @@ Estas entregas de segurança não concluem os CRUDs comerciais nem a preparaçã
 
 `/auth/organization-sessions` permite ao SYSTEM_ADMIN do vínculo ativo listar/revogar apenas sessões daquela organização. Não concede controle sobre sessões pessoais ou de outra empresa de conta compartilhada.
 
-Revogações, logout, replay e limite de rotações geram registros duráveis em `auth_session_revocations`, sem tokens/hashes e sem TTL. A própria inserção é a regra autoritativa de bloqueio, sem janela de duas escritas. A implementação histórica da #5 não exigia replica set; nesta branch, a #17 inclui sua inserção na transação de coordenação e passa a exigi-lo. Não decidir atividade olhando apenas `auth_sessions.revokedAt`. Novos logins após o corte de uma revogação em lote continuam possíveis.
+Revogações, logout, replay e limite de rotações geram registros duráveis em `auth_session_revocations`, sem tokens/hashes e sem TTL. A própria inserção é a regra autoritativa de bloqueio, sem janela de duas escritas. A implementação histórica da #5 não exigia replica set; a #17 integrada inclui sua inserção na transação de coordenação e passa a exigi-lo. Não decidir atividade olhando apenas `auth_sessions.revokedAt`. Novos logins após o corte de uma revogação em lote continuam possíveis.
 
 Validação local: 204 unitários, 53 HTTP/sessões/isolamento e 13 vínculos/provisionamento com MongoDB real, além de E2E/build/lint/tipos. Limites, endpoints, retenção e instruções: [estudo e execução](docs/authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
 
@@ -211,7 +213,7 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 4. ABAC e isolamento por organização/recurso — implementado e validado nos recursos atuais, com provisionamento inicial controlado;
 5. gestão de sessões — integrada e validada (#5 / PR #10);
 6. auditoria geral e regressões de segurança — integrada e validada (#6 / PR #11);
-7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta, tickets #16–#23; #16 configura limites, sem antecipar admissão/substituição #17/#18;
+7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta, tickets #16–#23; #16 configura limites e #17 implementa admissão atômica, ambas integradas/revalidadas (2/8); substituição #18 não iniciada;
 8. [CI/CD e qualidade (#13)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/13) — Backlog;
 9. [ambientes, observabilidade e recuperação (#14)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — Backlog;
 10. [funcionários e vínculos (#15)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — Backlog;

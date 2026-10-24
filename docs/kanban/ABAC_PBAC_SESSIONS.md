@@ -1,12 +1,12 @@
 # Kanban — Segurança, fundações e próximas entregas
 
-**Última entrega:** #16 / 12.1 integrada pela PR #25 (merge 74def00), revalidada na main. #1–#6 continuam integradas/Done. #12 permanece aberta.
+**Última entrega:** #17 / 12.2 integrada pela PR #26 (merge d86295c), revalidada na main após aprovação técnica. #1–#6/#16 continuam integradas/Done. #12 permanece aberta, **2/8** concluídos. Nenhuma implantação; #18 NÃO iniciada.
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2 — Animal Feed Warehouse — Engenharia e Entregas (projeto existente, não duplicado).
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
 
 ## Ready
 
-- [ ] [#12 Reforço de sessões e segurança de contas](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta/Ready; planejamento aprovado em oito sub-issues #16–#23. GitHub prevalece sobre alternativas históricas do plano versionado.
+- [ ] [#12 Reforço de sessões e segurança de contas](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta/Ready; **2/8 integradas (#16/#17)**, demais Backlog; planejamento aprovado em oito sub-issues #16–#23. GitHub prevalece sobre alternativas históricas do plano versionado.
 
 ## Backlog
 
@@ -21,9 +21,11 @@
 
 ## Em andamento / Em revisão
 
-- [ ] #17 / 12.2: implementação e validação na branch `feat/issue-17-atomic-session-admission`, baseline main `215138b`; [PR #26 OPEN para main](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/26), correção/revisão 7b949e8; responsável autorizou criação da PR, mas NÃO merge/encerramento. TOCTOU comprovada/corrigida, contenção/rollout revisados; 258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E e smokes aprovados NA BRANCH. Transação/replica set obrigatório, sem reservas duráveis, revogação automática ou antecipação da #18. [Revisão pré-PR](../authorization/ATOMIC_SESSION_ADMISSION_REVIEW.md). [Estudo e evidências](../authorization/ATOMIC_SESSION_ADMISSION_STUDY.md). Não marcar Done nem encerrar antes de integração aprovada/revalidação na main.
+Nenhuma execução ativa nesta entrega; #18 NÃO iniciada.
 
 ## Concluído
+
+- [x] #17 / 12.2: [PR #26 MERGED](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/pull/26), merge d86295c (HEAD aprovado e01d926/base 215138b; MERGEABLE/CLEAN). 258 unitários/21 suítes, 97 HTTP-MongoDB/2 suítes, 13 vínculos/2 suítes, 1 E2E e smokes AppModule/ACL autenticada/retirada de principal legado/exportador/CLI, build/lint/TypeScript/diff PASS novamente NA MAIN. Encerramento/Done autorizado após aceite completo; #12 2/8. Replica set obrigatório; sem reservas duráveis/revogação automática/#18/implantação. Contenção e rollout seguem limites explícitos. [Aceite na main](../authorization/ATOMIC_SESSION_ADMISSION_MAIN_ACCEPTANCE.md). [Estudo](../authorization/ATOMIC_SESSION_ADMISSION_STUDY.md). [Revisão pré-PR](../authorization/ATOMIC_SESSION_ADMISSION_REVIEW.md).
 
 - [x] #16 / 12.1 Configuração de limites: PR #25, implementação 0617249/merge 74def00. 245 unitários/20 suítes, 77 HTTP/MongoDB, 13 vínculos/bootstrap, 1 E2E, smokes AppModule/ACL/CLI, build/lint/tipos/diff aprovados e repetidos na main. Padrão 3 por organização, pessoal indefinido, SYSTEM_ADMIN de vínculo ativo, CAS de configuração e recibo atômico. NÃO inclui admissão #17/substituição #18. [Estudo](../authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
 

@@ -1,6 +1,12 @@
 # #17 / 12.2 — Admissão atômica de sessões
 
-## Estado e autorização
+## Estado atual — integrada e revalidada na main
+
+Revisão técnica aprovada pelo responsável, PR #26 MERGED em `d86295c65f5a6522f146f5f35e1dbcdb292359d2`, após confirmar HEAD e01d926/base 215138b e MERGEABLE/CLEAN. **258 unitários/97 HTTP-MongoDB/13 vínculos/1 E2E, smokes AppModule/ACL autenticada/CLI, build/lint/TypeScript/diff PASS novamente NA MAIN**. Encerramento/Done autorizado SOMENTE após esse aceite; #12 aberta 2/8, #18 Backlog/NÃO iniciada, nenhuma implantação. [Aceite completo e comandos/evidências](ATOMIC_SESSION_ADMISSION_MAIN_ACCEPTANCE.md).
+
+O registro de aceite prevalece sobre as proibições/estados antigos abaixo; o histórico de desenho, implementação e revisão permanece preservado.
+
+## Estado e autorização pré-merge (histórico)
 
 Implementação na branch `feat/issue-17-atomic-session-admission`, baseline `215138ba8d554d8b28c05a4dc5a0dea1ee250ddb`. #1–#6 e #16 integradas e preservadas. **Autorização mais recente: revisar relógio/contenção/rollout, corrigir/testar/documentar e CRIAR PR para main. SEM MERGE e SEM ENCERRAR #17 antes de nova aprovação.** #18 não iniciada. Não encontrado AGENTS.md no projeto/ancestrais; continuidade externa lida.
 
