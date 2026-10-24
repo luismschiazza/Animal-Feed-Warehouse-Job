@@ -6,6 +6,7 @@ import {
   SessionLimitConfigurationService,
   validateSessionLimitUpdate,
 } from './session-limit-configuration.service';
+import { SessionSerializationService } from './session-serialization.service';
 
 describe('Session limit configuration', () => {
   it.each([
@@ -39,9 +40,15 @@ describe('Session limit configuration', () => {
   };
   function fixture(row?: object) {
     const exec = jest.fn().mockResolvedValue(row ?? null);
-    const lean = jest.fn().mockReturnValue({ exec });
-    const read = jest.fn().mockReturnValue({ readConcern: jest.fn().mockReturnValue({ lean }) });
-    const sort = jest.fn().mockReturnValue({ read });
+    const query = {
+      exec,
+      lean: jest.fn().mockReturnThis(),
+      readConcern: jest.fn().mockReturnThis(),
+      session: jest.fn().mockReturnThis(),
+      read: jest.fn().mockReturnThis(),
+    };
+    const read = query.read;
+    const sort = jest.fn().mockReturnValue(query);
     const model = { findOne: jest.fn().mockReturnValue({ sort }), create: jest.fn() };
     const audit = {
       record: jest.fn().mockResolvedValue(undefined),
@@ -53,6 +60,7 @@ describe('Session limit configuration', () => {
       authorization as any,
       audit as any,
       { get: () => ({ requestId: 'server-request' }) } as any,
+      { run: (work) => work(undefined, new Date(), 1) } as unknown as SessionSerializationService,
     );
     return { service, model, audit, authorization, read };
   }
@@ -102,7 +110,7 @@ describe('Session limit configuration', () => {
           requestId: 'server-request',
         }),
       ],
-      { writeConcern: { w: 'majority', j: true } },
+      { session: undefined },
     );
   });
 });

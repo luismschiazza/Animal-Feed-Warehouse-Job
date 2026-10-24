@@ -49,11 +49,13 @@ import {
 } from '@/features/auth/controllers/sessions.controller';
 import { SessionLimitModelModule } from '@/features/auth/models/session-limit-model.module';
 import { AuthSession, SessionRevocationReason } from '@/features/auth/schemas/auth-session.schema';
+import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit-revision.schema';
 import { SessionLimitRevision } from '@/features/auth/schemas/session-limit-revision.schema';
 import {
   RevocationAction,
   SessionRevocation,
 } from '@/features/auth/schemas/session-revocation.schema';
+import { SessionSerialization } from '@/features/auth/schemas/session-serialization.schema';
 import {
   AuthSessionsService,
   MAX_SESSION_ROTATIONS,
@@ -62,6 +64,7 @@ import { AuthService } from '@/features/auth/services/auth.service';
 import { SessionLimitConfigurationService } from '@/features/auth/services/session-limit-configuration.service';
 import { SessionManagementService } from '@/features/auth/services/session-management.service';
 import { SessionRevocationsService } from '@/features/auth/services/session-revocations.service';
+import { SessionSerializationService } from '@/features/auth/services/session-serialization.service';
 import { JwtStrategy } from '@/features/auth/strategies/jwt.strategy';
 import { LocalStrategy } from '@/features/auth/strategies/local.strategy';
 import { DisciplinesController } from '@/features/disciplines/controllers/disciplines.controller';
@@ -221,6 +224,9 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       await model.createCollection();
       await model.createIndexes();
     }
+    const fence = module.get<Model<SessionSerialization>>(getModelToken(SessionSerialization.name));
+    await fence.createCollection();
+    await fence.create({ _id: SESSION_LIMIT_APPLICATION, sequence: 0, serverNow: new Date() });
     app = module.createNestApplication();
     app.useLogger(false);
     app.useGlobalPipes(
@@ -758,7 +764,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     await request(app.getHttpServer()).get('/auth/sessions').expect(401);
   });
 
-  describe('Audited revocations — real MongoDB, no replica-set dependency', () => {
+  describe('Audited revocations — real MongoDB, serialized with admission', () => {
     const call = (method: 'get' | 'delete', path: string, token: string) =>
       request(app.getHttpServer())[method](path).auth(token, { type: 'bearer' });
     const refresh = (token: string) =>
@@ -974,7 +980,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         .mockRejectedValueOnce(new Error('Simulated audit write failure'));
       try {
         await call('delete', `/auth/sessions/${target.session_id}`, current.access_token).expect(
-          500,
+          503,
         );
       } finally {
         failure.mockRestore();
@@ -1333,7 +1339,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     });
   });
 
-  describe('#16 configuration only — no admission or eviction', () => {
+  describe('#16 configuration regression — reduction never evicts', () => {
     const path = '/auth/organization-session-limit';
     const http = (method: 'get' | 'patch', token: string, body?: object) => {
       const call = request(app.getHttpServer())[method](path).auth(token, { type: 'bearer' });
@@ -1471,7 +1477,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       const s = await setup();
       for (const limit of [0, -1, 101, 1.5, '3', null])
         await http('patch', s.first.access_token, { limit, expectedVersion: 0 }).expect(400);
-      for (let i = 0; i < 4; i++) await login('Existing ' + i, s.a);
+      for (let i = 0; i < 2; i++) await login('Existing ' + i, s.a);
       const filter = { organizationId: new Types.ObjectId(s.a) };
       const before = await sessionModel.collection.find(filter).toArray();
       const revocationsBefore = await revocationModel.countDocuments();
@@ -1488,6 +1494,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         app.get(SessionManagementService),
         app.get(SecurityAuditService),
         app.get(AuditContext),
+        app.get(SessionSerializationService),
       );
       const attempts = await Promise.allSettled(
         Array.from({ length: 10 }, (_, i) =>
@@ -1539,7 +1546,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
         validationAction: 'error',
       });
       try {
-        await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(500);
+        await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(503);
       } finally {
         await connection.db.command({ collMod: 'session_limit_revisions', validator: {} });
       }
@@ -1556,7 +1563,7 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       });
     });
 
-    it('keeps an atomic change receipt on post-write audit failure; stale retry cannot duplicate', async () => {
+    it('aborts configuration and receipt together on audit failure; retry remains versioned', async () => {
       const s = await setup(),
         audit = app.get(SecurityAuditService);
       const record = audit.record.bind(audit);
@@ -1570,11 +1577,12 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
       } finally {
         spy.mockRestore();
       }
-      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(1);
+      expect(await connection.models.SessionLimitRevision.countDocuments()).toBe(0);
       expect((await http('get', s.first.access_token).expect(200)).body).toMatchObject({
-        limit: 2,
-        version: 1,
+        limit: 3,
+        version: 0,
       });
+      await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(200);
       await http('patch', s.first.access_token, { limit: 2, expectedVersion: 0 }).expect(409);
     });
   });

@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, PipelineStage, Types } from 'mongoose';
+import { ClientSession, Model, PipelineStage, Types } from 'mongoose';
 import { isSessionId } from '@/features/auth/tokens/refresh-token';
 import { PolicyAction, PolicyResource } from '../authorization/policy.types';
 import { Role } from '../enums/role.enum';
@@ -43,6 +43,7 @@ export class SecurityAuditService implements OnModuleInit {
     phase: AuditPhase,
     actor?: AuditActor,
     policy?: { resource?: string; action?: string; targetId?: string },
+    session?: ClientSession,
   ) {
     // Construct a NEW allowlisted object: never spread requests, errors, DTOs or tokens.
     const row = {
@@ -74,7 +75,8 @@ export class SecurityAuditService implements OnModuleInit {
       reason: result === 'allowed' ? 'accepted' : result === 'denied' ? 'rejected' : 'unavailable',
     };
     try {
-      await this.records.create([row], { writeConcern: { w: 'majority', j: true } });
+      if (session) await this.records.create([row], { session });
+      else await this.records.create([row], { writeConcern: { w: 'majority', j: true } });
     } catch {
       throw new ServiceUnavailableException('Security audit unavailable');
     }

@@ -22,6 +22,11 @@ import {
   SessionRevocation,
   SessionRevocationSchema,
 } from '../src/features/auth/schemas/session-revocation.schema';
+import {
+  SessionSerialization,
+  SessionSerializationSchema,
+} from '../src/features/auth/schemas/session-serialization.schema';
+import { SessionSerializationService } from '../src/features/auth/services/session-serialization.service';
 
 async function mustDeny(operation: () => Promise<unknown>) {
   try {
@@ -52,7 +57,9 @@ async function main() {
   ];
   const options = (schema: Schema) =>
     schema.clone().set('autoCreate', false).set('autoIndex', false);
-  let writer: Awaited<ReturnType<typeof admin.asPromise>>, reader: typeof writer;
+  let writer: Awaited<ReturnType<typeof admin.asPromise>>,
+    reader: typeof writer,
+    legacy: typeof writer;
   try {
     const general = admin.model(SecurityAuditRecord.name, options(SecurityAuditSchema));
     const revocations = admin.model(SessionRevocation.name, options(SessionRevocationSchema));
@@ -62,11 +69,21 @@ async function main() {
       await model.createIndexes();
       await verifyAuditIndexes(model);
     }
+    const fence = admin.model(SessionSerialization.name, options(SessionSerializationSchema));
+    await fence.createCollection();
+    await fence.create({ _id: 'animal-feed-warehouse', sequence: 0, serverNow: new Date() });
     const privileges = (actions: string[]) =>
       collections.map((collection) => ({ resource: { db: database, collection }, actions }));
     await admin.db.command({
       createRole: 'audit_writer',
-      privileges: privileges(['find', 'insert', 'listIndexes']),
+      privileges: [
+        ...privileges(['find', 'insert', 'listIndexes']),
+        { resource: { db: database, collection: 'auth_sessions' }, actions: ['find'] },
+        {
+          resource: { db: database, collection: 'session_serialization' },
+          actions: ['find', 'update', 'listIndexes'],
+        },
+      ],
       roles: [],
     });
     await admin.db.command({
@@ -84,6 +101,26 @@ async function main() {
       uri.searchParams.set('authSource', database);
       return createConnection(uri.toString(), { autoCreate: false, autoIndex: false }).asPromise();
     };
+    // A stopped process is not a credential fence. Prove old authenticated connections
+    // lose write access after retiring their distinct DB principal, not just changing a password.
+    await admin.db.command({
+      createUser: 'legacy_runtime',
+      pwd: password,
+      roles: [{ role: 'readWrite', db: database }],
+    });
+    legacy = await asUser('legacy_runtime');
+    await legacy.db
+      .collection('auth_sessions')
+      .insertOne({ sessionId: 'disposable-legacy-principal-proof' });
+    await admin.db.command({ updateUser: 'legacy_runtime', roles: [] });
+    await mustDeny(() =>
+      legacy.db.collection('auth_sessions').insertOne({ sessionId: 'must-not-admit' }),
+    );
+    await mustDeny(() =>
+      legacy.db.collection('auth_sessions').updateOne({}, { $set: { revokedAt: new Date() } }),
+    );
+    if ((await admin.db.collection('auth_sessions').countDocuments()) !== 1)
+      throw new Error('Legacy principal still wrote after retirement');
     writer = await asUser('audit_writer');
     reader = await asUser('audit_reader');
     const writerModel = writer.model<SecurityAuditRecord>(
@@ -130,6 +167,48 @@ async function main() {
       throw new Error('Restricted configuration read failed');
     await mustDeny(() =>
       configuration.collection.createIndex({ occurredAt: 1 }, { expireAfterSeconds: 1 }),
+    );
+    const runtimeFence = writer.model<SessionSerialization>(
+      SessionSerialization.name,
+      options(SessionSerializationSchema),
+    );
+    const coordinator = new SessionSerializationService(runtimeFence);
+    await coordinator.onModuleInit();
+    if (
+      (
+        await coordinator.readSessions([
+          { $match: { sessionId: 'disposable-legacy-principal-proof' } },
+        ])
+      ).length !== 1
+    )
+      throw new Error('Restricted snapshot session lookup failed');
+    const previous = await writerModel.countDocuments();
+    try {
+      await coordinator.run(async (session) => {
+        await store.record(
+          AuditEvent.SESSION_ADMISSION,
+          'allowed',
+          'service',
+          undefined,
+          undefined,
+          session,
+        );
+        throw new Error('Deliberate transactional abort');
+      });
+      throw new Error('Expected transaction abort');
+    } catch (error) {
+      if ((error as Error).message !== 'Session coordination unavailable') throw error;
+    }
+    if ((await writerModel.countDocuments()) !== previous)
+      throw new Error('Audit transaction did not roll back');
+    await coordinator.run(async (session) => {
+      const row = await configuration.findOne().session(session).lean();
+      await configuration.create([{ ...row, _id: new Types.ObjectId(), version: 2 }], { session });
+    });
+    await mustDeny(() => runtimeFence.collection.insertOne({ _id: 'forbidden' } as any));
+    await mustDeny(() => runtimeFence.collection.deleteMany({}));
+    await mustDeny(() =>
+      runtimeFence.collection.createIndex({ serverNow: 1 }, { expireAfterSeconds: 1 }),
     );
     await store.record(AuditEvent.LOGIN, 'denied', 'auth');
     // A restricted writer can append/read, but cannot erase history or add a destructive TTL.
@@ -187,9 +266,10 @@ async function main() {
       await rm(directory, { recursive: true, force: true });
     }
     console.info(
-      'PASS authenticated MongoDB ACL and read-only export CLI: append/read allowed; update/delete/drop/TTL and reader insert denied.',
+      'PASS authenticated MongoDB ACL, legacy-principal retirement and read-only export CLI: append/read allowed; update/delete/drop/TTL and reader insert denied.',
     );
   } finally {
+    await legacy?.close();
     await writer?.close();
     await reader?.close();
     // Only generated audit_acl_test_* database/users/roles, never the supplied admin DB.

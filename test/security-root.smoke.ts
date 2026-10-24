@@ -29,10 +29,20 @@ async function main() {
   const connection = app.get<Connection>(getConnectionToken());
   try {
     if (connection.name !== database) throw new Error('Unexpected test database');
-    for (const name of ['SecurityAuditRecord', 'SessionRevocation', 'SessionLimitRevision']) {
+    for (const name of [
+      'SecurityAuditRecord',
+      'SessionRevocation',
+      'SessionLimitRevision',
+      'SessionSerialization',
+    ]) {
       await connection.models[name].createCollection();
       await connection.models[name].createIndexes();
     }
+    await connection.models.SessionSerialization.create({
+      _id: 'animal-feed-warehouse',
+      sequence: 0,
+      serverNow: new Date(),
+    });
     configureApp(app, app.get(ConfigService), { validatorContainerModule: AppModule });
     await app.listen(0, '127.0.0.1');
     const base = await app.getUrl();

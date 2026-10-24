@@ -47,7 +47,17 @@ Guard e serviços carregam atributos confiáveis e aplicam filtros por organiza�
 
 `GET/PATCH /api/auth/organization-session-limit`: SYSTEM_ADMIN do vínculo ativo consulta/altera somente a organização da sessão. Padrão empresarial **3 por usuário/organização**; faixa técnica 1..100 e atualização com `expectedVersion`. Contexto pessoal não herda esse valor e permanece sem política numérica definida.
 
-**Somente configuração:** reduzir não revoga sessões; admissão atômica e substituição não foram implementadas aqui (#17/#18). Revisões append-only unem valor e recibo de auditoria; leitura primary/majority sem cache. Antes da primeira API desta versão, operador executa `session-limits:initialize` com `SESSION_LIMITS_MONGO_URL` explícita e credencial separada. Runtime: find/insert/listIndexes nessa coleção, sem update/delete/TTL/DDL. Não usar banco real durante testes. Contrato, limites e falhas: [estudo #16](docs/authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
+**Escopo histórico da #16:** somente configuração, sem revogação na redução. A admissão da #17 está implementada e revisada nesta branch, com PR autorizada e merge pendente de aprovação (seção abaixo); substituição da #18 NÃO implementada. Revisões append-only unem valor e recibo de auditoria; leitura primary/majority sem cache. Antes da primeira API desta versão, operador executa `session-limits:initialize` com `SESSION_LIMITS_MONGO_URL` explícita e credencial separada. Runtime: find/insert/listIndexes nessa coleção, sem update/delete/TTL/DDL. Não usar banco real durante testes. Contrato, limites e falhas: [estudo #16](docs/authorization/SESSION_LIMIT_CONFIGURATION_STUDY.md).
+
+### Admissão atômica — #17 / 12.2 (PR #26 aberta; merge depende de aprovação)
+
+Novos logins organizacionais respeitam o limite por identidade/organização entre instâncias. Transação MongoDB snapshot/majority/journal serializa admissão, configuração e revogação; conta sessões realmente ativas com as regras autoritativas, não um contador separado. No limite: **409**, sem credenciais/desafio de substituição. Redução preserva sessões e bloqueia novas admissões até haver capacidade. Pessoal permanece independente, sem quota numérica aprovada/fallback empresarial.
+
+**Replica set obrigatório.** Standalone (inclusive Compose antigo sem replica set) falha fechado; não há fallback inseguro. Em rollout, drenar/parar escritores antigos E retirar permissões das identidades legadas; identidade runtime nova não pode ser entregue a binários/jobs antigos. Só parar processos ou trocar senha não é barreira suficiente. Sem rolling update misto/rollback automático pré-protocolo; veja o runbook da revisão. Em instalação realmente vazia, executar o bootstrap empresarial deliberado **antes** de criar o documento de coordenação, pois bootstrap recusa banco com dados. Após provisionamento, inicializar auditoria/configuração conforme instruções existentes e executar `npm run session-admission:initialize` com `SESSION_ADMISSION_MONGO_URL` explícita e credencial operacional separada. Nada disso foi executado em banco real.
+
+Runtime precisa find/update/listIndexes em `session_serialization` (sem insert/delete/DDL/TTL), além dos privilégios anteriores por coleção. Journals continuam append-only. Sequência de coordenação não é contador de capacidade e nunca deve ser zerada; perda exige recuperação coerente. Relógio MongoDB e watermark persistido são verificados JUNTO da sessão em um comando snapshot; não há assertClock separado da leitura. Sequência ordena nascimento/cortes no mesmo milissegundo. JWT/infra ainda exigem disciplina de relógios.
+
+Abort/crash pré-commit não deixa reserva durável. Commit com resposta perdida ou falha posterior de auditoria pode deixar sessão real consumindo capacidade: sem revogação automática; recuperação por gestão própria existente/expiração. Serialização global pode ser gargalo; não há benchmark/failover/produção certificados. Prova, operação e testes: [estudo #17](docs/authorization/ATOMIC_SESSION_ADMISSION_STUDY.md) e [revisão relógio/contenção/rollout](docs/authorization/ATOMIC_SESSION_ADMISSION_REVIEW.md). Leituras não escrevem no coordenador; contenção de escrita ainda pode bloquear admissões de A e B. Refresh revalida após CAS e pode consumir segredo sem devolver credencial se a checagem falhar.
 
 Estas entregas de segurança não concluem os CRUDs comerciais nem a preparação de produção. As próximas fundações incluem reforços de contas/sessões, CI/CD, ambientes/recuperação e vínculos empresariais, sem implementação antecipada.
 
@@ -57,7 +67,7 @@ Estas entregas de segurança não concluem os CRUDs comerciais nem a preparaçã
 
 `/auth/organization-sessions` permite ao SYSTEM_ADMIN do vínculo ativo listar/revogar apenas sessões daquela organização. Não concede controle sobre sessões pessoais ou de outra empresa de conta compartilhada.
 
-Revogações, logout, replay e limite de rotações geram registros duráveis em `auth_session_revocations`, sem tokens/hashes e sem TTL. A própria inserção é a regra autoritativa de bloqueio, sem janela de duas escritas ou exigência de replica set. Não decidir atividade olhando apenas `auth_sessions.revokedAt`. Novos logins após o corte de uma revogação em lote continuam possíveis.
+Revogações, logout, replay e limite de rotações geram registros duráveis em `auth_session_revocations`, sem tokens/hashes e sem TTL. A própria inserção é a regra autoritativa de bloqueio, sem janela de duas escritas. A implementação histórica da #5 não exigia replica set; nesta branch, a #17 inclui sua inserção na transação de coordenação e passa a exigi-lo. Não decidir atividade olhando apenas `auth_sessions.revokedAt`. Novos logins após o corte de uma revogação em lote continuam possíveis.
 
 Validação local: 204 unitários, 53 HTTP/sessões/isolamento e 13 vínculos/provisionamento com MongoDB real, além de E2E/build/lint/tipos. Limites, endpoints, retenção e instruções: [estudo e execução](docs/authorization/SESSION_MANAGEMENT_IMPLEMENTATION_STUDY.md).
 
@@ -92,7 +102,7 @@ A matriz inicial está em [`docs/authorization/ROLE_AND_PERMISSION_MATRIX.md`](d
 
 - Node.js 24.x (veja `.nvmrc`);
 - npm 11 ou superior;
-- MongoDB 8 ou Docker;
+- MongoDB 8 em replica set para a #17 (ou Docker com replica set explicitamente configurado);
 - Docker Engine e Docker Compose, opcionalmente.
 
 ## Configuração local

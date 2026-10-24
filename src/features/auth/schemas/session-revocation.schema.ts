@@ -39,6 +39,8 @@ export class SessionRevocation {
   @Prop({ type: String }) targetSessionId?: string;
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Organization' }) organizationId?: Types.ObjectId;
   @Prop({ type: Date }) revokedBefore?: Date;
+  // Ordered cutoff for new sessions; dates remain authoritative for legacy pairs.
+  @Prop({ type: Number, min: 1, immutable: true }) revokedThroughSequence?: number;
   @Prop({ type: String }) excludedSessionId?: string;
   @Prop({ type: Date, required: true }) occurredAt: Date;
   @Prop({ type: String, immutable: true }) requestId?: string;

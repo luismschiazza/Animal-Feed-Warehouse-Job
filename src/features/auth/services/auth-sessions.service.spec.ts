@@ -9,12 +9,13 @@ import {
   SESSION_TTL_MS,
 } from './auth-sessions.service';
 import { SessionRevocationsService } from './session-revocations.service';
+import { SessionSerializationService } from './session-serialization.service';
 
 describe('AuthSessionsService — mocked query/CAS contracts', () => {
   const userId = new Types.ObjectId().toString();
   let service: AuthSessionsService;
   let db: Record<string, jest.Mock>;
-  let rules: { assertActive: jest.Mock; single: jest.Mock };
+  let rules: { assertActive: jest.Mock; single: jest.Mock; activeLookup: jest.Mock };
   const query = (result: unknown) => ({ exec: jest.fn().mockResolvedValue(result) });
   const snapshot = (sessionId: string) => ({
     sessionId,
@@ -24,7 +25,11 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
   });
   beforeEach(() => {
     db = {
-      create: jest.fn().mockResolvedValue({}),
+      create: jest.fn().mockImplementation(async (rows) => {
+        db.findOne.mockReturnValue(query(rows[0]));
+        return rows;
+      }),
+      aggregate: jest.fn().mockReturnValue({ session: () => ({ exec: async () => [] }) }),
       findOne: jest.fn().mockReturnValue(query(null)),
       findOneAndUpdate: jest.fn().mockReturnValue(query(null)),
       updateOne: jest.fn().mockReturnValue(query({ modifiedCount: 1 })),
@@ -32,10 +37,32 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
     rules = {
       assertActive: jest.fn().mockResolvedValue(undefined),
       single: jest.fn().mockResolvedValue({}),
+      activeLookup: jest.fn().mockReturnValue([]),
     };
     service = new AuthSessionsService(
       db as unknown as Model<AuthSession>,
       rules as unknown as SessionRevocationsService,
+      {
+        run: (work) => work(undefined, new Date(), 1),
+        readSessions: async (pipeline) => {
+          const row = await db.findOne(pipeline[0].$match).exec();
+          return row ? [row] : [];
+        },
+      } as unknown as SessionSerializationService,
+      {
+        findOne: () => {
+          const q = {
+            sort: () => q,
+            read: () => q,
+            session: () => q,
+            readConcern: () => q,
+            lean: () => q,
+            exec: async () => null,
+          };
+          return q;
+        },
+      } as any,
+      { record: jest.fn() } as any,
     );
   });
   it('creates independent bounded sessions with only refresh verifiers', async () => {
@@ -43,7 +70,7 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
     const first = await service.create(userId, { ip: 'i'.repeat(200), userAgent: 'u'.repeat(600) });
     const second = await service.create(userId);
     expect(first.sessionId).not.toBe(second.sessionId);
-    const saved = db.create.mock.calls[0][0];
+    const saved = db.create.mock.calls[0][0][0];
     expect(saved.userId.toString()).toBe(userId);
     expect(saved.currentTokenHash).toBe(parseRefreshToken(first.refreshToken).tokenHash);
     expect(saved).not.toHaveProperty('refreshToken');
@@ -56,7 +83,10 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
   it('persists organization as BSON and rejects malformed identifiers', async () => {
     const organizationId = new Types.ObjectId().toString();
     await service.create(userId, {}, organizationId);
-    expect(db.create.mock.calls[0][0].organizationId.toString()).toBe(organizationId);
+    expect(db.create.mock.calls[0][0][0].organizationId.toString()).toBe(organizationId);
+    expect(db.aggregate.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([{ $limit: 3 }, { $count: 'total' }]),
+    );
     await expect(service.create(userId, {}, 'invalid')).rejects.toThrow(UnauthorizedException);
     await expect(service.create('invalid')).rejects.toThrow(UnauthorizedException);
     expect(db.create).toHaveBeenCalledTimes(1);
@@ -74,7 +104,7 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
       sessionId: sid,
       userId: new Types.ObjectId(userId),
       revokedAt: null,
-      expiresAt: { $gt: expect.any(Date) },
+      $expr: { $gt: ['$expiresAt', '$$NOW'] },
     });
     db.findOne.mockReturnValue(query(snapshot(sid)));
     await service.findActive(sid, userId);
@@ -109,7 +139,7 @@ describe('AuthSessionsService — mocked query/CAS contracts', () => {
       currentTokenHash: current.tokenHash,
       rotationVersion: { $lt: MAX_SESSION_ROTATIONS },
       revokedAt: null,
-      expiresAt: { $gt: expect.any(Date) },
+      $expr: { $gt: ['$expiresAt', '$$NOW'] },
     });
     expect(update.$push.consumedTokens).toEqual({
       tokenId: current.tokenId,
