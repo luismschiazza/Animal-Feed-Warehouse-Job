@@ -122,10 +122,61 @@ propagated/meta findings and multiple reports per package.
   without approving those scripts. Deprecation warnings for glob 7/inflight remain;
   zero registry audit findings does not make deprecated dependencies maintained.
 
-## Validation status
+## Stage 3 — compiled runtime packaging
 
-Stage 1: lint/build and Compose config syntax validation executed without daemon.
-Unit tests include seed-denial tests with no database/mail dependencies.
-Docker daemon unavailable at preflight: image build/startup/healthcheck/replica-set
-behavior and all MongoDB integration/ACL/crash/concurrency smokes remain PENDING.
-No complete security approval or production readiness claimed.
+Review caught a pre-existing build-layout incompatibility: broad TypeScript input
+included root .mts configs, emitting dist/src/main.js, while startup expects
+dist/main.js. Set build rootDir/include to src; configs/tests are not production
+entrypoints. Disable incremental build metadata for production builds: a second
+clean build exposed metadata outside dist skipping JS emission after deleteOutDir.
+Two consecutive builds/smokes now verify deterministic entrypoint/assets. Nest build
+still rewrites source aliases into compiled relative imports.
+The template loader also depended on cwd/src and the Nest asset glob omitted
+features/. Fixed both: templates ship next to compiled mail code under dist and
+resolve relative to __dirname. No need to ship source/env/test files in production.
+
+Added `node test/runtime-packaging.smoke.cjs`: copies dist to a unique temporary
+directory WITHOUT src, registers the same helpers as MailModule and renders an
+actual packaged template. Inline CSS is stubbed so no remote CSS/network can be
+fetched. First smoke attempts correctly exposed build-path mismatch and then a
+fixture missing helper registration; corrected before the final passing execution.
+A repeated build additionally exposed stale incremental metadata; disabled it and
+removed only the generated untracked tsconfig.build.tsbuildinfo.
+This is packaging evidence, not a replacement for an actual container startup.
+
+## Final validation status — PARTIAL, review required
+
+| Check | Observed result |
+|---|---|
+| Node / npm | 24.22.1 / 11.19.1 |
+| npm ci (reviewed lockfile, also run without --ignore-scripts) | PASS; 845 installed packages |
+| npm audit full before → after | 64 (3 critical/25 high/33 moderate/3 low) → 0 |
+| npm audit --omit=dev before → after | 24 (2 critical/16 high/6 moderate) → 0 |
+| npm ls --depth=0 and production tree | PASS, no invalid dependency tree |
+| npm run lint | PASS |
+| npm run build | PASS; dist/main.js and template assets verified |
+| npx --no-install tsc --noEmit --incremental false | PASS, including test typechecking |
+| npm test -- --runInBand | PASS: 265 tests / 22 suites |
+| npm run test:e2e -- --runInBand | PASS: 4 tests / 2 suites, no MongoDB |
+| dist-only offline packaging smoke | PASS |
+| Separate temporary npm ci --omit=dev --ignore-scripts + dist-only smoke | PASS: 299 installed runtime dependencies; temporary directory removed |
+| docker compose config --quiet (dummy JWT only) | PASS; parses config without contacting database/daemon |
+| git diff --check | PASS |
+| Container builds / image vulnerability scan / production-image boot | PENDING: Docker daemon unavailable |
+| Local RS initializer, primary healthcheck, ports, container non-root behavior | PENDING: requires daemon |
+| test:sessions / atomic-admission / test:abac and real AppModule/security-root | PENDING: requires dedicated disposable MongoDB replica set |
+| audit-operations / session-admission-operations / restricted ACL, crash and concurrency smokes | PENDING: requires dedicated disposable authenticated RS |
+| Gmail SMTP/TLS delivery | NOT EXECUTED, no external email authorized |
+
+The existing #4/#5/#6/#16/#17 security policies/transaction protocol were not changed.
+Unit regressions pass but real MongoDB validation MUST be repeated with the updated
+Mongoose/driver/Nest before acceptance. A single-node local RS does not prove HA,
+failover, production TLS/ACL/backups or exclusion of old writers. Do not disable
+snapshot/majority transactions or missing-metadata startup checks to make Compose boot.
+OS/base-image/npm-runtime vulnerability scanning is NOT covered by npm audit; pinned
+image manifests only prove reproducibility, not absence of OS/Node CVEs. Refresh
+pins through a new review when newer security releases become necessary.
+
+No real DB access, seed execution, merge, push, PR opening/finalization, deployment,
+#18 change or commercial CRUD was performed. Stop here for owner review; do not
+interpret zero audit findings as complete security approval or production readiness.
