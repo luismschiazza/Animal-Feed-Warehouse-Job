@@ -67,6 +67,61 @@ Production-only (`--omit=dev`): 24 = 2 critical / 16 high / 6 moderate.
 These are dependency findings, not proof of exploitability of every API path.
 No npm audit fix --force is permitted. Major upgrades require specific review.
 
+## Stage 2 — dependency remediation
+
+Baseline → compatible lockfile refresh: 64 → 6 findings (no --force, no major
+Nest/Mongoose/ESLint/Jest upgrades). Then reviewed direct Nodemailer migration
+and narrowly scoped overrides reduced both full and production audits to ZERO
+in the registry snapshot. Audit is not a proof of absence of vulnerabilities.
+
+Direct resolved changes (minimum manifest ranges also raised):
+
+| Dependency | Before | After |
+|---|---|---|
+| @faker-js/faker | 10.1.0 | 10.6.0 |
+| @nestjs/common/core/microservices/platform-express/testing | 11.1.9 | 11.2.8 |
+| @nestjs/config | 4.0.2 | 4.0.4 |
+| @nestjs/swagger | 11.2.3 | 11.4.7 |
+| handlebars | 4.7.8 | 4.7.10 |
+| mongoose | 8.20.1 | 8.24.7 |
+| nodemailer | 7.0.11 | 10.2.1 |
+| @nestjs/cli | 11.0.12 | 11.0.24 |
+| @nestjs/schematics | 11.0.9 | 11.1.0 |
+
+Removed obsolete @types/nodemailer 7.0.4: 10.2.1 includes native types.
+Transitive patches include jws 3.2.3 (jsonwebtoken signature verification path),
+proxy-addr 2.0.8, axios 1.20.0, body-parser 2.4.0, lodash 4.18.1 and qs 6.16.1.
+Full production paths, 128 unique GHSA records, assigned CVEs and published patched
+boundaries: [EMERGENCY_DEPENDENCY_FINDINGS.md](EMERGENCY_DEPENDENCY_FINDINGS.md).
+GitHub advisory identifiers were queried, not guessed. Audit counts include
+propagated/meta findings and multiple reports per package.
+
+### Targeted compatibility decisions
+
+- Nest platform-express 11.2.8 still pins vulnerable Multer 2.4.0. Override ONLY
+  its multer to 2.5.0 (same major); do not accept audit's suggested Nest downgrade.
+  HTTP multipart acceptance/size rejection tested in isolated fixture.
+- Swagger 11.4.7 pins js-yaml 5.3.0. Override ONLY its js-yaml to 5.5.0;
+  intermediate GHSA-r3ph-w7gj-g6xm (no CVE assigned) also addressed. Actual OpenAPI
+  JSON/YAML HTTP generation tested; other js-yaml major lines not forced to 5.
+- brace-expansion@^1.1.7 overridden to patched 1.1.21 on its existing major line.
+  Revisit these overrides when upstream removes vulnerable pins; never silently
+  remove them merely to reduce lockfile churn.
+- Nodemailer 7 → 10 is an intentional reviewed major change: 8 renames NoAuth to
+  ENOAUTH, 9 validates TLS for fetched remote content by default, 10 requires Node
+  >=20 and ships CJS/ESM builds/native TypeScript definitions. Reviewed packaged
+  CHANGELOG (8.0.0/9.0.0/10.0.0); application uses root createTransport/sendMail,
+  not private paths, SES or error-code comparisons. Existing Gmail provider
+  compiles unchanged. Offline stream transport test proves CJS import, built-in
+  types, MIME generation and escaped Handlebars output WITHOUT SMTP/email delivery.
+  Real Gmail/TLS/credential integration remains untested and is NOT authorized.
+- Engine narrowing intentionally rejects Node 25+/npm 12 pending separate review;
+  this is a toolchain compatibility boundary, not a claim those lines are unsafe.
+- npm ci succeeds with lockfile v3. npm 11.19.1 reports unapproved install scripts
+  for @scarf/scarf/unrs-resolver; no blanket allow-list added. Build and tests work
+  without approving those scripts. Deprecation warnings for glob 7/inflight remain;
+  zero registry audit findings does not make deprecated dependencies maintained.
+
 ## Validation status
 
 Stage 1: lint/build and Compose config syntax validation executed without daemon.
