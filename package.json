@@ -6,8 +6,8 @@
   "private": true,
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=24.0.0",
-    "npm": ">=11.3.0"
+    "node": ">=24.22.1 <25",
+    "npm": ">=11.19.1 <12"
   },
   "scripts": {
     "cli": "ts-node -r tsconfig-paths/register src/main-cli.ts",

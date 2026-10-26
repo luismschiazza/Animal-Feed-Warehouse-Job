@@ -1,57 +1,33 @@
-# Use a Node.js base image
-FROM node:24.16.0-alpine AS development
-
-# Set the working directory
+# Pin the runtime and base-image digest; refresh deliberately after validation.
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS base
+# Align the container npm with the reviewed local toolchain.
+RUN npm install --global npm@11.19.1 && npm cache clean --force
 WORKDIR /usr/src/app
 
-# Copy package.json and package-lock.json
-COPY package.json package-lock.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy the entire project to the working directory
-COPY . .
-
-# Expose the application port
+FROM base AS development
+ENV NODE_ENV=development
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
+COPY --chown=node:node . .
+RUN chown -R node:node /usr/src/app
+USER node
 EXPOSE 3000
+CMD ["npm", "run", "start:dev"]
 
-# Start the application in development mode
-CMD ["sh", "-c", "npm run console seed && npm run start:dev"]
-
-###################
-# Build for production
-###################
-FROM node:24.16.0-alpine AS build
-
-# Set the working directory
-WORKDIR /usr/src/app
-
-# Copy dependencies and source files from development stage
-COPY --from=development /usr/src/app ./
-
-# Build project
+FROM development AS build
+USER root
 RUN npm run build
 
-# Install production-safe deps (rebuild consistency)
-RUN npm install --production=false --package-lock-only && npm cache clean --force
-
-# Set environment
+FROM base AS production-dependencies
 ENV NODE_ENV=production
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-###################
-# Production
-###################
-FROM node:24.16.0-alpine AS production
-
-# Set working directory
-WORKDIR /usr/src/app
-
-# Copy build result
-COPY --from=build /usr/src/app ./
-
-# Expose port
+FROM base AS production
+ENV NODE_ENV=production
+COPY --from=production-dependencies --chown=node:node /usr/src/app/node_modules ./node_modules
+COPY --from=build --chown=node:node /usr/src/app/dist ./dist
+COPY --chown=node:node package.json ./
+USER node
 EXPOSE 3000
-
-# Start production server
-CMD ["node", "dist/main"]
+CMD ["node", "dist/main.js"]
