@@ -6,7 +6,7 @@
     "deleteOutDir": true,
     "assets": [
       { 
-        "include": "features/mail/templates/**/*",
+        "include": "features/mail/{templates,style}/**/*",
         "outDir": "dist" 
       }
     ],

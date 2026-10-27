@@ -15,9 +15,10 @@ try {
     assert.ok(require('node:fs').existsSync('./dist/main.js'));
     require('./dist/features/mail/helpers/handlerBars-helpers.js').registerHandlebarsHelpers();
     const {TemplateEngineProvider} = require('./dist/features/mail/providers/template-engine.provider.js');
-    const engine = new TemplateEngineProvider({apply: async html => html});
+    const {InlineCssProvider} = require('./dist/features/mail/providers/inline-css.provider.js');
+    const engine = new TemplateEngineProvider(new InlineCssProvider());
     engine.render('grades/grade-released.hbs', {studentName:'Offline test',disciplineName:'Fixture',gradeValue:8})
-      .then(html => {assert.ok(html.includes('<'));assert.ok(html.length > 100); console.log('PASS dist-only template rendering; no DB/SMTP');})
+      .then(html => {assert.ok(html.includes('<'));assert.ok(html.length > 100); assert.match(html, /style="[^"]*background-color/); console.log('PASS dist-only template and REAL CSS rendering; no DB/SMTP');})
       .catch(error => {console.error('FAIL dist-only template rendering:', error.message);process.exitCode=1;});
   `;
   execFileSync(process.execPath, ['-e', child], {
