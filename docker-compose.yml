@@ -1,9 +1,13 @@
 # LOCAL development only: single-node replica set, no authentication or HA.
+# Runtime has no backup/import tools, root-switch helper or automatic initdb support.
 # Never point this stack at an existing database or expose it to a network.
 name: animal-feed-local
 services:
   mongo-db:
-    image: mongo:8.0.24@sha256:1d5421397c3ef6086739de7c482eec81eed93840c774e85f98e99765806809cc
+    image: afw-mongo-local:8.0.34
+    build:
+      context: .
+      dockerfile: docker/mongodb.Dockerfile
     command: ["mongod", "--replSet", "afwlocal", "--bind_ip_all"]
     ports:
       - '127.0.0.1:27017:27017'
@@ -19,7 +23,7 @@ services:
   # Explicit opt-in for a NEW LOCAL replica set; never part of normal app startup.
   # Run: docker compose --profile setup run --rm mongo-rs-init
   mongo-rs-init:
-    image: mongo:8.0.24@sha256:1d5421397c3ef6086739de7c482eec81eed93840c774e85f98e99765806809cc
+    image: afw-mongo-local:8.0.34
     profiles: [setup]
     depends_on:
       mongo-db:

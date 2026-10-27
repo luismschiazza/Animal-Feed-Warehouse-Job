@@ -1,5 +1,10 @@
 # Emergency runtime/dependency security review
 
+Historical first-phase record. Current image/startup fixes, complete real validation
+and residual CVE decisions are in [phase 2](EMERGENCY_PHASE2_VALIDATION.md) and the
+[per-finding image triage](EMERGENCY_IMAGE_CVE_TRIAGE.md); these supersede earlier
+Docker-blocked status and original image/toolchain versions below.
+
 ## Scope and authorization
 
 Repository confirmed: luismschiazza/Animal-Feed-Warehouse-Job, baseline main `be2fbd9`.

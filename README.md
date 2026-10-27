@@ -155,12 +155,13 @@ Nunca envie o arquivo `.env`, senhas SMTP ou segredos JWT ao Git.
 Com Docker:
 
 ```bash
+docker compose build mongo-db
 docker compose up -d mongo-db
 # Opt-in consciente, somente para o replica set LOCAL novo:
 docker compose --profile setup run --rm mongo-rs-init
 ```
 
-Ou execute um replica set local do MongoDB, nunca standalone para a #17. O Compose usa volume local novo, portas em loopback e não executa seeds ou provisionamento empresarial. Seu replica set de nó único sem autenticação NÃO é infraestrutura de produção.
+Ou execute um replica set local do MongoDB, nunca standalone para a #17. O Compose usa volume local novo, portas em loopback e não executa seeds ou provisionamento empresarial. Seu replica set de nó único sem autenticação NÃO é infraestrutura de produção. A imagem local usa MongoDB 8.0.34, UID999 e não inclui ferramentas de backup/importação nem inicialização via `MONGO_INITDB_*`; essas opções são recusadas explicitamente. Não reutilize dados antigos esperando chown/migração automática.
 
 Antes do primeiro start, siga a ordem de bootstrap empresarial em banco vazio, auditoria e coordenador da [#17](docs/authorization/ATOMIC_SESSION_ADMISSION_STUDY.md); não inicialize automaticamente no startup. Prepare as coleções de auditoria com `npm run audit:initialize`, informando `AUDIT_MONGO_URL` explicitamente para o banco local escolhido. O comando não usa `.env`/`MONGO_URL` por fallback e não apaga eventos. Para a instalação real, planeje primeiro o provisionamento inicial com API parada; não use o seeder escolar. Veja o [procedimento de auditoria](docs/authorization/SECURITY_AUDIT_IMPLEMENTATION_STUDY.md).
 
@@ -204,7 +205,7 @@ npm run cli -- generate:jwt-secret
 node test/runtime-packaging.smoke.cjs
 ```
 
-> Seeds escolares legadas estão desabilitadas, inclusive no comando e no serviço. Não são provisionamento da loja. Consulte a [revisão emergencial de runtime/dependências](docs/authorization/EMERGENCY_SECURITY_RUNTIME_AUDIT.md): audit zerado não substitui validação real de MongoDB/containers, ainda pendente nesta branch.
+> Seeds escolares legadas estão desabilitadas, inclusive no comando e no serviço. Não são provisionamento da loja. Consulte a [fase 2 da revisão emergencial](docs/authorization/EMERGENCY_PHASE2_VALIDATION.md) e a [triagem por CVE](docs/authorization/EMERGENCY_IMAGE_CVE_TRIAGE.md). Startup compilado e regressões reais foram validados; há CVEs residuais de imagem e nenhuma aprovação de produção. A imagem final da API executa Node diretamente, sem npm/corepack/yarn.
 
 ## Roadmap
 

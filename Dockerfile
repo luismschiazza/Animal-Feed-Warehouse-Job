@@ -1,7 +1,13 @@
 # Pin the runtime and base-image digest; refresh deliberately after validation.
-FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS base
-# Align the container npm with the reviewed local toolchain.
-RUN npm install --global npm@11.19.1 && npm cache clean --force
+FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS base
+# Reviewed npm minor update within v11, used only by development/build stages.
+RUN npm install --global npm@11.21.1 \
+    && npm install --prefix /tmp/toolchain-patch --ignore-scripts --no-audit --no-fund --save-exact undici@6.29.1 ip-address@10.7.4 \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/undici /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && mv /tmp/toolchain-patch/node_modules/undici /usr/local/lib/node_modules/npm/node_modules/undici \
+    && mv /tmp/toolchain-patch/node_modules/ip-address /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && rm -rf /tmp/toolchain-patch \
+    && npm cache clean --force
 WORKDIR /usr/src/app
 
 FROM base AS development
@@ -24,6 +30,9 @@ COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 FROM base AS production
+# Runtime needs node, not global package managers or their vulnerable toolchains.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 ENV NODE_ENV=production
 COPY --from=production-dependencies --chown=node:node /usr/src/app/node_modules ./node_modules
 COPY --from=build --chown=node:node /usr/src/app/dist ./dist
