@@ -4,7 +4,7 @@ USER root
 # Backup/import tools and root-switch/init helpers are unnecessary for this runtime.
 # mongod/mongosh, authentication, keyfiles, TLS and replica-set support remain intact.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends --only-upgrade zlib1g=1:1.3.dfsg-3.1ubuntu2.3 \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g=1:1.3.dfsg-3.1ubuntu2.3 libbrotli1=1.1.0-2ubuntu0.1 \
     && apt-get purge -y mongodb-database-tools \
     && rm -rf /var/lib/apt/lists/* /opt/js-yaml /js-yaml.js \
     && rm -f /usr/local/bin/gosu /usr/local/bin/docker-entrypoint.sh
