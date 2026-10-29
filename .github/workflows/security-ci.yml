@@ -1,0 +1,198 @@
+name: Security CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI_REPORTS: /tmp/afw-ci-${{ github.run_id }}-${{ github.run_attempt }}-quality
+      CI_CLIENT: afw-ci-client-${{ github.run_id }}-${{ github.run_attempt }}-quality
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, pinned commit
+        with:
+          persist-credentials: false
+      - name: Record identity and build reviewed development toolchain (npm ci)
+        run: |
+          mkdir -m 755 "$CI_REPORTS"
+          printf 'pr_head_sha=%s\nbase_sha=%s\ntested_sha=%s\nstarted_utc=%s\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$(git rev-parse HEAD)" "$(date -u +%FT%TZ)" > "$CI_REPORTS/identity.txt"
+          # RUN npm ci is in this Docker target. No node_modules or remote build cache is reused.
+          docker build --no-cache --progress=plain --target development -t afw-ci-development . > "$CI_REPORTS/build.log" 2>&1
+      - name: Test audit policy (positive and fail-closed cases)
+        run: |
+          docker run --rm --name "$CI_CLIENT" --network none afw-ci-development node --test scripts/ci/audit-policy.test.cjs > "$CI_REPORTS/audit-policy-tests.log" 2>&1
+      - name: Audit production and explicitly classify the reviewed development advisory
+        run: |
+          # Capture REAL audit statuses; only the reviewed classifier decides whether to continue.
+          set +e
+          docker run --rm --name "$CI_CLIENT" afw-ci-development npm audit --omit=dev --json > "$CI_REPORTS/audit-production.json" 2> "$CI_REPORTS/audit-production.stderr.log"
+          production_exit=$?
+          docker run --rm --name "$CI_CLIENT" afw-ci-development npm audit --json > "$CI_REPORTS/audit-full.json" 2> "$CI_REPORTS/audit-full.stderr.log"
+          full_exit=$?
+          set -e
+          printf '{"production":%s,"full":%s}\n' "$production_exit" "$full_exit" > "$CI_REPORTS/audit-exits.json"
+          docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$CI_REPORTS,target=/ci-reports,readonly" afw-ci-development node scripts/ci/audit-policy.cjs /ci-reports/audit-production.json /ci-reports/audit-full.json /ci-reports/audit-exits.json package-lock.json > "$CI_REPORTS/audit-triage.json"
+          cat "$CI_REPORTS/audit-exits.json" >> "$GITHUB_STEP_SUMMARY"
+          cat "$CI_REPORTS/audit-triage.json" >> "$GITHUB_STEP_SUMMARY"
+          if grep -q 'known-development-advisory' "$CI_REPORTS/audit-triage.json"; then
+            echo '::warning title=Known development audit risk::GHSA-gcqx-w48m-w2h4 / CVE-2026-93753 remains development-only. Full audit exit 1 is retained; no production clearance or blanket exception.'
+          fi
+      - name: Lint, TypeScript, build, unit tests, E2E and real asset packaging
+        timeout-minutes: 10
+        run: |
+          docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$GITHUB_WORKSPACE/test,target=/usr/src/app/test,readonly" afw-ci-development sh -ec '
+            npm run lint
+            npx --no-install tsc --noEmit --incremental false
+            npm run build
+            npm test -- --runInBand
+            npm run test:e2e -- --runInBand
+            node test/runtime-packaging.smoke.cjs
+          ' > "$CI_REPORTS/quality.log" 2>&1
+      - name: Mandatory cleanup
+        if: always()
+        run: |
+          docker info > /dev/null
+          if docker container inspect "$CI_CLIENT" > /dev/null 2>&1; then docker rm -f -v "$CI_CLIENT"; fi
+      - name: Sanitize allowlisted reports
+        if: always()
+        run: &sanitize |
+          python3 - <<'PY'
+          import os, pathlib, re, urllib.parse
+          password = urllib.parse.urlsplit(os.environ.get('AUDIT_TEST_ADMIN_URL', '')).password
+          root = pathlib.Path(os.environ['CI_REPORTS'])
+          target = root / 'sanitized'
+          target.mkdir(parents=True, exist_ok=True)
+          for file in root.iterdir():
+              if not file.is_file() or file.is_symlink() or file.suffix not in ('.log', '.json', '.txt'):
+                  continue
+              text = file.read_text(errors='replace')
+              if password:
+                  text = text.replace(password, '[REDACTED]')
+              text = re.sub(r'mongodb(?:\+srv)?://[^\s\x22\x27<>]+', 'mongodb://[REDACTED-TEST-URI]', text)
+              text = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._~+/=-]+', 'Bearer [REDACTED]', text)
+              text = re.sub(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', '[REDACTED-JWT]', text)
+              text = re.sub(r'(?i)("(?:password|pass|pwd|access_token|refresh_token|authorization|token)"\s*:\s*)"[^"\n]*"', r'\1"[REDACTED]"', text)
+              (target / file.name).write_text(text)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, pinned commit
+        if: always()
+        with:
+          name: quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CI_REPORTS }}/sanitized/
+          retention-days: 3
+          if-no-files-found: warn
+
+  mongo-integration:
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI_REPORTS: /tmp/afw-ci-${{ github.run_id }}-${{ github.run_attempt }}-mongo
+      CI_CLIENT: afw-ci-client-${{ github.run_id }}-${{ github.run_attempt }}-mongo
+      RS_NAME: afw-ci-rs-${{ github.run_id }}-${{ github.run_attempt }}
+      AUTH_NAME: afw-ci-acl-${{ github.run_id }}-${{ github.run_attempt }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, pinned commit
+        with:
+          persist-credentials: false
+      - name: Record identity and build disposable test images
+        run: |
+          mkdir -m 755 "$CI_REPORTS"
+          printf 'pr_head_sha=%s\nbase_sha=%s\ntested_sha=%s\nstarted_utc=%s\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$(git rev-parse HEAD)" "$(date -u +%FT%TZ)" > "$CI_REPORTS/identity.txt"
+          docker build --no-cache --progress=plain --target development -t afw-ci-development . > "$CI_REPORTS/build-development.log" 2>&1
+          docker build --progress=plain -f docker/mongodb.Dockerfile -t afw-ci-mongo . > "$CI_REPORTS/build-mongo.log" 2>&1
+      - name: Create new isolated replica sets (no published ports or existing volumes)
+        timeout-minutes: 3
+        run: |
+          for name in "$RS_NAME" "$AUTH_NAME"; do
+            if docker container inspect "$name" > /dev/null 2>&1; then echo 'Refusing existing container'; exit 1; fi
+          done
+          docker run -d --rm --name "$RS_NAME" --network none afw-ci-mongo --replSet ci-rs --bind_ip_all --setParameter enableTestCommands=1 --setParameter transactionLifetimeLimitSeconds=5 --setParameter ttlMonitorEnabled=false
+          docker run -d --rm --name "$AUTH_NAME" --network none --entrypoint bash afw-ci-mongo -lc 'set -eu; openssl rand -base64 756 > /tmp/ci-keyfile; chmod 400 /tmp/ci-keyfile; exec mongod --replSet ci-acl --bind_ip_all --auth --keyFile /tmp/ci-keyfile'
+          for spec in "$RS_NAME:ci-rs" "$AUTH_NAME:ci-acl"; do
+            name=${spec%:*}; rs=${spec##*:}
+            ready=false
+            for i in {1..40}; do
+              if docker exec "$name" mongosh --quiet --eval 'quit(db.adminCommand({ping:1}).ok?0:1)' > /dev/null 2>&1; then ready=true; break; fi
+              sleep 1
+            done
+            test "$ready" = true
+            docker exec "$name" mongosh --quiet --eval "rs.initiate({_id:'$rs',members:[{_id:0,host:'127.0.0.1:27017'}]})" > "$CI_REPORTS/setup-$rs.log" 2>&1
+            ready=false
+            for i in {1..40}; do
+              if docker exec "$name" mongosh --quiet --eval 'quit(db.hello().isWritablePrimary?0:1)' > /dev/null 2>&1; then ready=true; break; fi
+              sleep 1
+            done
+            test "$ready" = true
+          done
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
+          # Persist only the disposable URI for tests/redaction, even if operator creation fails.
+          printf 'AUDIT_TEST_ADMIN_URL=mongodb://ci_operator:%s@127.0.0.1:27017/?directConnection=true&replicaSet=ci-acl&authSource=admin\n' "$password" >> "$GITHUB_ENV"
+          docker exec -e CI_TEST_PASSWORD="$password" "$AUTH_NAME" mongosh --quiet --eval 'db.getSiblingDB("admin").createUser({user:"ci_operator",pwd:process.env.CI_TEST_PASSWORD,roles:["root"]})' > "$CI_REPORTS/setup-operator.log" 2>&1
+      - name: HTTP, concurrency, transactions, ABAC/PBAC and real AppModule/CLI
+        timeout-minutes: 12
+        run: |
+          docker run --rm --name "$CI_CLIENT" --network "container:$RS_NAME" --mount "type=bind,source=$GITHUB_WORKSPACE/test,target=/usr/src/app/test,readonly" -e SESSIONS_TEST_MONGO_URL='mongodb://127.0.0.1:27017/?directConnection=true&replicaSet=ci-rs' -e ABAC_TEST_MONGO_URL='mongodb://127.0.0.1:27017/?directConnection=true&replicaSet=ci-rs' afw-ci-development sh -ec '
+            npm run test:sessions
+            npm run test:abac
+            npm run test:security-root
+            npm run test:session-admission-operations
+          ' > "$CI_REPORTS/integration.log" 2>&1
+      - name: Authenticated audit ACLs, transactions, writer retirement and read-only exporter
+        timeout-minutes: 5
+        run: |
+          docker run --rm --name "$CI_CLIENT" --network "container:$AUTH_NAME" --mount "type=bind,source=$GITHUB_WORKSPACE/test,target=/usr/src/app/test,readonly" -e AUDIT_TEST_ADMIN_URL afw-ci-development npm run test:audit-operations > "$CI_REPORTS/audit-acl.log" 2>&1
+      - name: Verified mutual TLS and negative cases
+        timeout-minutes: 3
+        env:
+          CONTAINER_TEST_MONGO_IMAGE: afw-ci-mongo
+        run: |
+          # mkdtemp is 0700 on Linux. Match the fixture owner to Mongo UID999;
+          # do not weaken key permissions or mount the Docker socket in a container.
+          docker_gid=$(stat -c %g /var/run/docker.sock)
+          install -m 644 test/mongo-tls-container.smoke.cjs "$CI_REPORTS/tls-smoke.cjs"
+          mkdir -m 700 "$CI_REPORTS/tls-docker-config"
+          sudo chown "999:$docker_gid" "$CI_REPORTS/tls-docker-config"
+          node_bin=$(command -v node)
+          cd "$CI_REPORTS"
+          sudo setpriv --reuid=999 --regid="$docker_gid" --clear-groups env CONTAINER_TEST_MONGO_IMAGE="$CONTAINER_TEST_MONGO_IMAGE" DOCKER_CONFIG="$CI_REPORTS/tls-docker-config" "$node_bin" "$CI_REPORTS/tls-smoke.cjs" > "$CI_REPORTS/tls.log" 2>&1
+      - name: Mandatory cleanup and failure diagnostics (own containers only)
+        if: always()
+        run: |
+          mkdir -p "$CI_REPORTS"
+          docker info > /dev/null
+          for name in "$CI_CLIENT" "$RS_NAME" "$AUTH_NAME"; do
+            if docker container inspect "$name" > /dev/null 2>&1; then
+              set +e
+              docker logs "$name" > "$CI_REPORTS/$name.log" 2>&1
+              log_exit=$?
+              set -e
+              printf '%s diagnostic_log_exit=%s\n' "$name" "$log_exit" >> "$CI_REPORTS/cleanup.txt"
+              docker rm -f -v "$name"
+            fi
+          done
+      - name: Sanitize allowlisted reports
+        if: always()
+        run: *sanitize
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, pinned commit
+        if: always()
+        with:
+          name: mongo-integration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CI_REPORTS }}/sanitized/
+          retention-days: 3
+          if-no-files-found: warn
