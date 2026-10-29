@@ -232,7 +232,9 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
     );
-    await app.init();
+    // Keep one listener for the suite. Supertest must not close its temporary
+    // listener while other concurrent requests are still connecting.
+    await app.listen(0, '127.0.0.1');
     connection = module.get(getConnectionToken());
     sessions = module.get(AuthSessionsService);
     sessionModel = module.get(getModelToken(AuthSession.name));

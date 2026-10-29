@@ -6,8 +6,8 @@
   "private": true,
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=24.0.0",
-    "npm": ">=11.3.0"
+    "node": ">=24.22.1 <25",
+    "npm": ">=11.19.1 <12"
   },
   "scripts": {
     "cli": "ts-node -r tsconfig-paths/register src/main-cli.ts",
@@ -36,27 +36,27 @@
     "test:abac": "jest --config ./test/jest-abac-integration.json --runInBand"
   },
   "dependencies": {
-    "@faker-js/faker": "^10.1.0",
-    "@nestjs/common": "^11.1.9",
-    "@nestjs/config": "^4.0.2",
-    "@nestjs/core": "^11.1.9",
+    "@faker-js/faker": "^10.6.0",
+    "@nestjs/common": "^11.2.8",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.8",
     "@nestjs/event-emitter": "^3.0.1",
     "@nestjs/jwt": "^11.0.1",
-    "@nestjs/microservices": "^11.1.9",
+    "@nestjs/microservices": "^11.2.8",
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.1.9",
-    "@nestjs/swagger": "^11.2.3",
+    "@nestjs/platform-express": "^11.2.8",
+    "@nestjs/swagger": "^11.4.7",
     "@nestjs/throttler": "^6.5.0",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
-    "handlebars": "^4.7.8",
+    "handlebars": "^4.7.10",
     "inline-css": "^4.0.3",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.20.1",
+    "mongoose": "^8.24.7",
     "nest-commander": "^3.20.1",
-    "nodemailer": "^7.0.11",
+    "nodemailer": "^10.2.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
@@ -66,15 +66,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@nestjs/cli": "^11.0.12",
-    "@nestjs/schematics": "^11.0.9",
-    "@nestjs/testing": "^11.1.9",
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/schematics": "^11.1.0",
+    "@nestjs/testing": "^11.2.8",
     "@trivago/prettier-plugin-sort-imports": "^6.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
-    "@types/nodemailer": "^7.0.4",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^6.0.3",
     "eslint": "^9.39.1",
@@ -92,6 +91,15 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.47.0"
+  },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "2.5.0"
+    },
+    "@nestjs/swagger": {
+      "js-yaml": "5.5.0"
+    },
+    "brace-expansion@^1.1.7": "1.1.21"
   },
   "jest": {
     "moduleFileExtensions": [
