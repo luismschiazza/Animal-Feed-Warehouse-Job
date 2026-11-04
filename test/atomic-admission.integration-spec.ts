@@ -74,7 +74,8 @@ describe('#17 atomic admission — two independent HTTP instances / real replica
         next();
       }),
     );
-    await app.init();
+    // Own the listener lifetime explicitly across concurrent Supertest requests.
+    await app.listen(0, '127.0.0.1');
     return app;
   }
   beforeAll(async () => {

@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "status": "APPROVED_TEMPORARY_BY_OWNER",
+  "reviewedAt": "2026-11-03T22:09:20.702Z",
+  "expiresAt": "2026-11-10T22:09:20.702Z",
+  "advisory": "GHSA-gcqx-w48m-w2h4",
+  "cve": "CVE-2026-93753",
+  "reason": "CNA and NVD reject CVE because it does not describe a security vulnerability; GHSA/npm remain active. Owner explicitly approved temporary S1 for this reviewed candidate and publication for remote CI on 2026-11-04. Limited feed-discrepancy disposition, not patched package, blanket waiver, merge/deploy or issue-closure authorization.",
+  "sources": {
+    "cve": {
+      "url": "https://cveawg.mitre.org/api/cve/CVE-2026-93753",
+      "status": 200,
+      "sha256": "42ad863c99ded4f00ef3b17feaa6596be79a90ab6412ddb49d6ef99914475797",
+      "rawSHA256": "4af791f6a41d4602c12e3c1ee0089fc8361600dec87731f3d6490b47dcf5c82a"
+    },
+    "nvd": {
+      "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-93753",
+      "status": 200,
+      "sha256": "c84c3eb541947cc9bd10f2cf701a55cccf85d50e8581250467334dc91de1c26b",
+      "rawSHA256": "bf11223e42d63b8465e795e072872a6e2d6e4c11d5a140e20a71e856b5a0f84c"
+    },
+    "ghsa": {
+      "url": "https://api.github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "status": 200,
+      "sha256": "165df4c280f61d014cb833139b7ed0fb7936329195b74c1941a6944c6aef3616",
+      "rawSHA256": "129678c2a239966df96de51652fed82705e52bf32828c008c5a37e0bce39bf78"
+    }
+  },
+  "records": {
+    "cve": "42ad863c99ded4f00ef3b17feaa6596be79a90ab6412ddb49d6ef99914475797",
+    "nvd": "48cfc5858a749cf133ac592d063d4ec210988f805a8d1e53145dc07c6ae13197",
+    "ghsa": "165df4c280f61d014cb833139b7ed0fb7936329195b74c1941a6944c6aef3616"
+  },
+  "findings": "37564eba37f3cf013b2f35a99eb33370c2c906c3d1dcca6b7fad28d1e011c298",
+  "lock": "416406e3f204ed545b8131ba6fb1f81dd6c5c15822afec96dc34ed23dafb19fd",
+  "payload": {
+    "entry": "2e5160f84a1141bd927264afe4d15766f1e6cf07daef182b37ff53fea121de7d",
+    "package": "f56978e7a6da1a3c6edee41abb54f98584a2fa2680458c48db820ae772fef0c9"
+  }
+}

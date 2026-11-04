@@ -9,7 +9,8 @@ export class TemplateEngineProvider {
   private readonly templatesBasePath: string;
 
   constructor(private inlineCss: InlineCssProvider) {
-    this.templatesBasePath = path.join(process.cwd(), 'src', 'features', 'mail', 'templates');
+    // Works from TypeScript locally and from dist in the minimal production image.
+    this.templatesBasePath = path.join(__dirname, '..', 'templates');
 
     this.registerSharedPartials();
   }

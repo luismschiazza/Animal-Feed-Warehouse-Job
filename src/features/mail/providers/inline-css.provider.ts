@@ -8,7 +8,8 @@ export class InlineCssProvider {
   private cssContent: string;
 
   constructor() {
-    const cssPath = path.join(process.cwd(), 'src', 'features', 'mail', 'style', 'mail.css');
+    // Keep the asset next to mail code in both src (development) and dist (production).
+    const cssPath = path.join(__dirname, '..', 'style', 'mail.css');
 
     this.cssContent = fs.readFileSync(cssPath, 'utf8');
   }

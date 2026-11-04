@@ -1,51 +1,33 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { AttendancesSeeder } from '@/features/attendance/seeders/attendance.seeder';
-import { DisciplinesSeeder } from '@/features/disciplines/seeders/disciplines.seeder';
-import { GradesSeeder } from '@/features/grades/seeders/grades.seeder';
-import { MailSeed } from '@/features/mail/seeds/mail.seed';
-import { MeetingsSeeder } from '@/features/meeting/seeders/meetings.seeder';
-import { UsersSeeder } from '@/features/users/seeders/users.seeder';
+import { Injectable } from '@nestjs/common';
 
+/** Historical school fixtures are not warehouse provisioning. Disabled in ALL environments. */
 @Injectable()
 export class SeedService {
-  private readonly logger = new Logger(SeedService.name);
-
-  constructor(
-    private readonly usersSeeder: UsersSeeder,
-    private readonly disciplinesSeeder: DisciplinesSeeder,
-    private readonly attendancesSeeder: AttendancesSeeder,
-    private readonly meetingsSeeder: MeetingsSeeder,
-    private readonly gradesSeeder: GradesSeeder,
-    private readonly mailSeeder: MailSeed,
-  ) {}
-
-  async seedDisciplines(limit?: number): Promise<void> {
-    await this.disciplinesSeeder.run(limit);
-    this.logger.log('✔ Disciplines seeding finished.');
+  private disabled(): never {
+    throw new Error('Legacy demonstration seeds are disabled; use reviewed operator provisioning');
   }
 
-  async seedUsers(limit?: number): Promise<void> {
-    await this.usersSeeder.run(limit);
-    this.logger.log('✔ Users seeding finished.');
+  async seedDisciplines(_limit?: number): Promise<void> {
+    void _limit;
+    this.disabled();
   }
-
-  async seedAttendances(limit?: number): Promise<void> {
-    await this.attendancesSeeder.run(limit);
-    this.logger.log('✔ Attendances seeding finished.');
+  async seedUsers(_limit?: number): Promise<void> {
+    void _limit;
+    this.disabled();
   }
-
-  async seedMeeting(limit?: number): Promise<void> {
-    await this.meetingsSeeder.run(limit);
-    this.logger.log('✔ Meeting seeding finished.');
+  async seedAttendances(_limit?: number): Promise<void> {
+    void _limit;
+    this.disabled();
   }
-
-  async seedGrade(limit?: number): Promise<void> {
-    await this.gradesSeeder.run(limit);
-    this.logger.log('✔ Grades seeding finished.');
+  async seedMeeting(_limit?: number): Promise<void> {
+    void _limit;
+    this.disabled();
   }
-
+  async seedGrade(_limit?: number): Promise<void> {
+    void _limit;
+    this.disabled();
+  }
   async seedMailer(): Promise<void> {
-    await this.mailSeeder.run();
-    this.logger.log('✔ Mailer seeding finished.');
+    this.disabled();
   }
 }

@@ -1,3 +1,5 @@
 # Keep TypeScript compatible with Prettier after Windows checkout (core.autocrlf).
 *.ts text eol=lf
 *.mts text eol=lf
+# Container shell entrypoints must remain executable on Linux.
+*.sh text eol=lf
