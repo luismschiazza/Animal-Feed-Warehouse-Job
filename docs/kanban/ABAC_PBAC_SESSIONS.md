@@ -1,12 +1,12 @@
 # Kanban — Segurança, fundações e próximas entregas
 
-**Última entrega:** #17 / 12.2 integrada pela PR #26 (merge d86295c), revalidada na main após aprovação técnica. #1–#6/#16 continuam integradas/Done. #12 permanece aberta, **2/8** concluídos. Nenhuma implantação; #18 NÃO iniciada.
+**Estado atual:** #17 / 12.2 integrada pela PR #26; remediação de segurança PR #27 integrada em e285965, com S1 temporária e follow-up #28 aberta. #1–#6/#16 preservadas. #12 permanece aberta, **2/8 integradas**. #18 autorizada e implementada em branch isolada para revisão, sem aceite na main. Nenhuma implantação.
 **GitHub Projects:** https://github.com/users/luismschiazza/projects/2 — Animal Feed Warehouse — Engenharia e Entregas (projeto existente, não duplicado).
 **Princípios:** deny-by-default, menor privilégio, autorização no servidor, isolamento por organização e auditoria.
 
 ## Ready
 
-- [ ] [#12 Reforço de sessões e segurança de contas](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta/Ready; **2/8 integradas (#16/#17)**, demais Backlog; planejamento aprovado em oito sub-issues #16–#23. GitHub prevalece sobre alternativas históricas do plano versionado.
+- [ ] [#12 Reforço de sessões e segurança de contas](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta/Ready; **2/8 integradas (#16/#17)**, #18 em revisão da branch e demais Backlog; planejamento aprovado em oito sub-issues #16–#23. GitHub prevalece sobre alternativas históricas do plano versionado.
 
 ## Backlog
 
@@ -14,14 +14,14 @@
 - [ ] [#14 Ambientes, observabilidade e recuperação](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — operação proporcional, secrets/permissões, alertas e restore ensaiado. [Plano](../issues/ENVIRONMENTS_OBSERVABILITY_RECOVERY.md).
 - [ ] [#15 Gestão de funcionários e vínculos empresariais](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — delegação e revogação seletiva, preservando identidade pessoal e B. [Plano](../issues/EMPLOYEE_MEMBERSHIP_MANAGEMENT.md).
 
-- [ ] #18–#23: planejamento da #12, preservado em Backlog; NÃO iniciado nesta execução.
+- [ ] #19–#23: planejamento da #12, preservado em Backlog; NÃO iniciado nesta execução.
 - [ ] #24: performance independente, p95 < 300 ms sob carga documentada; sem benchmark nesta entrega.
 
 #13–#15 preservadas em Backlog, sem implementação antecipada. O planejamento atual e dependências constam nas issues nativas.
 
 ## Em andamento / Em revisão
 
-Nenhuma execução ativa nesta entrega; #18 NÃO iniciada.
+- [ ] [#18 Substituição segura de sessões](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/18) — implementação proposta na branch `feat/issue-18-safe-session-replacement`, baseada na main e285965 após PR #27. 280 unitários, 128 HTTP/MongoDB (31 novos), 13 ABAC, 4 E2E e smokes AppModule/ACL/CLI locais aprovados. Autorização temporária restrita, seleção explícita e transação #17; sem exclusão automática da mais antiga. PR #29 aberta para revisão, sem merge/deploy/encerramento autorizados. Extensão atual de resposta perdida v2: senha atual + verifier privado S256 em cada chamada, substituição controlada da família atual, ID de intenção deduplicado no Mongo e até 16 recuperações nos dois minutos originais; sem cache de tokens, aumento de quota ou renovação de prazo. 283 unitários/181 HTTP-MongoDB locais, múltiplas perdas, concorrência, morte/reinício real de processo e ACL/CLI autenticados aprovados. Novo head exige CI próprio; o verde histórico de 98818e4 não aprova a extensão. [Estudo original](../authorization/SAFE_SESSION_REPLACEMENT_STUDY.md) e [primeira recuperação](../authorization/SESSION_REPLACEMENT_RECOVERY_STUDY.md) e [fontes/desenho/recuperações sucessivas e risco de roubo conjunto](../authorization/SESSION_REPLACEMENT_REPEATED_RECOVERY_STUDY.md).
 
 ## Concluído
 
@@ -36,7 +36,7 @@ Nenhuma execução ativa nesta entrega; #18 NÃO iniciada.
 - [x] #02 Sessões por dispositivo: PR #7 (cd31d07). [Estudo](../authorization/DEVICE_SESSIONS_IMPLEMENTATION.md).
 - [x] #01 Papéis empresariais/matriz: encerrada e integrada preservando histórico pelo PR #7.
 
-Históricos reconciliados por merge normal, sem force-push, preservando commits e LICENSE. Apenas MongoDBs/contas/papéis descartáveis usados; nenhum banco real/email real alterado. Sem CI remoto configurado até a implementação futura da #13. Merge não significa implantação ou segurança absoluta.
+Históricos reconciliados por merge normal, sem force-push, preservando commits e LICENSE. Apenas MongoDBs/contas/papéis descartáveis usados; nenhum banco real/email real alterado. A ausência de CI era histórica até #17; PR #27 adicionou Security CI real. Governança/proteção e escopo restante da #13 continuam abertos, assim como operação #14 e follow-up #28. Merge não significa implantação ou segurança absoluta.
 
 ## Critérios globais
 

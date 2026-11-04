@@ -5,6 +5,7 @@ import { AuditController } from '@/common/audit/audit.controller';
 import { AttendancesController } from '@/features/attendance/controllers/attendance.controller';
 import { AuthController } from '@/features/auth/controllers/auth.controller';
 import { SessionLimitConfigurationController } from '@/features/auth/controllers/session-limit-configuration.controller';
+import { SessionReplacementController } from '@/features/auth/controllers/session-replacement.controller';
 import {
   OrganizationSessionsController,
   SessionsController,
@@ -18,6 +19,7 @@ import { POLICY_DEFINITIONS } from './policy.registry';
 import { PolicyRequirement } from './policy.types';
 
 const controllers = [
+  SessionReplacementController,
   SessionLimitConfigurationController,
   AppController,
   AuditController,
@@ -35,6 +37,12 @@ const publicAllowlist = new Set([
   'AppController.getHello',
   'AuthController.login',
   'AuthController.refresh',
+  // Dedicated password/capability authentication in service; never an anonymous business route.
+  'SessionReplacementController.start',
+  'SessionReplacementController.list',
+  'SessionReplacementController.confirm',
+  'SessionReplacementController.cancel',
+  'SessionReplacementController.recover',
   'UsersController.create',
 ]);
 

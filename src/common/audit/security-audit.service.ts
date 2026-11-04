@@ -20,6 +20,9 @@ export type AuditActor = {
   organizationId?: string;
   roles?: Role[];
   membershipId?: string;
+  replacementFlowId?: string;
+  replacementRecoveryRequestId?: string;
+  replacementRecoveryVersion?: number;
 };
 export type AuditScope = { kind: 'user' | 'organization'; id: string } | { kind: 'anonymous' };
 const oid = (value: unknown) =>
@@ -63,6 +66,18 @@ export class SecurityAuditService implements OnModuleInit {
       ],
       organizationId: oid(actor?.organizationId),
       sessionId: isSessionId(actor?.sessionId) ? actor.sessionId : null,
+      replacementFlowId: isSessionId(actor?.replacementFlowId)
+        ? actor.replacementFlowId
+        : undefined,
+      replacementRecoveryRequestId: isSessionId(actor?.replacementRecoveryRequestId)
+        ? actor.replacementRecoveryRequestId
+        : undefined,
+      replacementRecoveryVersion:
+        Number.isSafeInteger(actor?.replacementRecoveryVersion) &&
+        actor.replacementRecoveryVersion >= 1 &&
+        actor.replacementRecoveryVersion <= 16
+          ? actor.replacementRecoveryVersion
+          : undefined,
       resource: Object.values(PolicyResource).includes(policy?.resource as PolicyResource)
         ? policy.resource
         : undefined,
@@ -139,6 +154,9 @@ export class SecurityAuditService implements OnModuleInit {
           phase: 1,
           occurredAt: 1,
           requestId: 1,
+          replacementFlowId: 1,
+          replacementRecoveryRequestId: 1,
+          replacementRecoveryVersion: 1,
           actorUserId: 1,
           roles: 1,
           membershipId: 1,
@@ -211,6 +229,9 @@ export class SecurityAuditService implements OnModuleInit {
         'phase',
         'occurredAt',
         'requestId',
+        'replacementFlowId',
+        'replacementRecoveryRequestId',
+        'replacementRecoveryVersion',
         'actorUserId',
         'roles',
         'membershipId',

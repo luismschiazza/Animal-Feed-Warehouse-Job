@@ -11,14 +11,17 @@ import { UsersModule } from '@/features/users/users.module';
 import { AuthSessionsModule } from './auth-sessions.module';
 import { AuthController } from './controllers/auth.controller';
 import { SessionLimitConfigurationController } from './controllers/session-limit-configuration.controller';
+import { SessionReplacementController } from './controllers/session-replacement.controller';
 import {
   OrganizationSessionsController,
   SessionsController,
 } from './controllers/sessions.controller';
+import { AuthSessionModelModule } from './models/auth-session-model.module';
 import { SessionLimitModelModule } from './models/session-limit-model.module';
 import { AuthService } from './services/auth.service';
 import { SessionLimitConfigurationService } from './services/session-limit-configuration.service';
 import { SessionManagementService } from './services/session-management.service';
+import { SessionReplacementService } from './services/session-replacement.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 
@@ -28,6 +31,7 @@ import { LocalStrategy } from './strategies/local.strategy';
     UsersModule,
     OrganizationsModule,
     AuthSessionsModule,
+    AuthSessionModelModule,
     SessionLimitModelModule,
     PassportModule.register({ defaultStrategy: 'jwt', session: false }),
     JwtModule.registerAsync({
@@ -49,6 +53,7 @@ import { LocalStrategy } from './strategies/local.strategy';
   ],
   providers: [
     AuthService,
+    SessionReplacementService,
     LocalStrategy,
     JwtStrategy,
     SessionManagementService,
@@ -58,6 +63,7 @@ import { LocalStrategy } from './strategies/local.strategy';
   ],
   controllers: [
     AuthController,
+    SessionReplacementController,
     SessionLimitConfigurationController,
     SessionsController,
     OrganizationSessionsController,

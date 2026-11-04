@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { ClientSession } from 'mongoose';
 import { AuditEvent } from '@/common/audit/security-audit.schema';
 import { SecurityAuditService } from '@/common/audit/security-audit.service';
 import { AccountStatus } from '@/common/enums/account-status.enum';
@@ -14,6 +15,7 @@ import {
 import { User } from '@/features/users/interfaces/user.interface';
 import { UsersService } from '@/features/users/services/users.service';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { hashRefreshSecret } from '../tokens/refresh-token';
 import { AuthSessionsService, SessionMetadata } from './auth-sessions.service';
 
 export interface AuthenticatedUser {
@@ -27,6 +29,8 @@ export interface AuthenticatedUser {
   organizationStatus?: OrganizationStatus;
   membershipStatus?: MembershipStatus;
 }
+
+const PASSWORD_LOGIN_PROOF = Symbol('server-only-password-validation');
 
 @Injectable()
 export class AuthService {
@@ -62,7 +66,84 @@ export class AuthService {
       await this.audit.record(AuditEvent.LOGIN, 'denied', 'auth');
       return null;
     }
-    return this.personalIdentity(user);
+    const identity = this.personalIdentity(user);
+    // Non-enumerable server-only provenance: cannot be supplied in JSON or synthesized from a JWT.
+    // Carried on the exact Passport result, not tied to one DI instance (multiple apps may share Passport).
+    Object.defineProperty(identity, PASSWORD_LOGIN_PROOF, {
+      value: Object.freeze({ id: identity.id, proof: hashRefreshSecret(user.password) }),
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+    return identity;
+  }
+
+  replacementLoginProof(user: AuthenticatedUser) {
+    const proof = (
+      user as AuthenticatedUser & {
+        [PASSWORD_LOGIN_PROOF]?: { id: string; proof: string };
+      }
+    )?.[PASSWORD_LOGIN_PROOF];
+    if (!proof || proof.id !== user.id) throw new UnauthorizedException('Password proof required');
+    return proof.proof;
+  }
+
+  async requireReplacementIdentity(
+    userId: string,
+    organizationId: string,
+    passwordProof: string,
+    membershipId?: string,
+    session?: ClientSession,
+  ) {
+    if (
+      typeof userId !== 'string' ||
+      typeof organizationId !== 'string' ||
+      !/^[a-f0-9]{24}$/i.test(userId) ||
+      !/^[a-f0-9]{24}$/i.test(organizationId) ||
+      typeof passwordProof !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(passwordProof) ||
+      (membershipId !== undefined &&
+        (typeof membershipId !== 'string' || !/^[a-f0-9]{24}$/i.test(membershipId)))
+    )
+      throw new UnauthorizedException('Invalid replacement context');
+    const account = await this.usersService.findOneByIdWithPassword(userId, session);
+    if (
+      !account ||
+      account.status !== AccountStatus.ACTIVE ||
+      typeof account.password !== 'string' ||
+      hashRefreshSecret(account.password) !== passwordProof
+    )
+      throw new UnauthorizedException('Invalid replacement context');
+    const access = await this.organizations.requireActiveMembership(
+      userId,
+      organizationId,
+      session,
+    );
+    if (membershipId !== undefined && access.membershipId !== membershipId)
+      throw new UnauthorizedException('Invalid replacement context');
+    return this.tenantIdentity(account, access);
+  }
+
+  async completeReplacement(
+    userId: string,
+    organizationId: string,
+    membershipId: string,
+    passwordProof: string,
+    sessionId: string,
+    refreshToken: string,
+  ) {
+    const identity = await this.requireReplacementIdentity(
+      userId,
+      organizationId,
+      passwordProof,
+      membershipId,
+    );
+    const active = await this.sessions.findActive(sessionId, userId);
+    if (active.organizationId?.toString() !== organizationId)
+      throw new UnauthorizedException('Invalid replacement context');
+    const pair = this.issueTokenPair(identity, sessionId, refreshToken);
+    await this.audit.record(AuditEvent.LOGIN, 'allowed', 'auth', { ...identity, sessionId });
+    return pair;
   }
 
   async validateSession(userId: string, sessionId: string): Promise<AuthenticatedUser> {

@@ -4,6 +4,12 @@ import { Role } from '../enums/role.enum';
 
 export enum AuditEvent {
   SESSION_ADMISSION = 'session_admission',
+  REPLACEMENT_START = 'session_replacement_start',
+  REPLACEMENT_LIST = 'session_replacement_list',
+  REPLACEMENT_SELECTION = 'session_replacement_selection',
+  REPLACEMENT_CANCEL = 'session_replacement_cancel',
+  REPLACEMENT_CONFIRM = 'session_replacement_confirm',
+  REPLACEMENT_RECOVER = 'session_replacement_recover',
   SESSION_LIMIT_CONFIGURATION = 'session_limit_configuration',
   LOGIN = 'login',
   REFRESH = 'refresh',
@@ -54,6 +60,10 @@ export class SecurityAuditRecord {
     immutable: true,
   })
   reason: string;
+  // Random flow identifier only, never the capability/token or its verifier.
+  @Prop({ type: String, immutable: true }) replacementFlowId?: string;
+  @Prop({ type: String, immutable: true }) replacementRecoveryRequestId?: string;
+  @Prop({ type: Number, immutable: true, min: 1, max: 16 }) replacementRecoveryVersion?: number;
   @Prop({ type: String, immutable: true }) method?: string;
   @Prop({ type: String, immutable: true }) ip?: string;
 }

@@ -15,6 +15,8 @@ export enum RevocationAction {
   ADMIN_ALL = 'organization_revoke_all',
   REPLAY = 'refresh_reuse',
   LIMIT = 'rotation_limit',
+  REPLACE = 'replace_session',
+  RECOVER_REPLACEMENT = 'recover_session_replacement',
 }
 
 // Append-only authoritative rules AND audit. Deliberately NO TTL or delete API.
@@ -55,6 +57,8 @@ SessionRevocationSchema.pre('validate', function () {
       RevocationAction.ADMIN_REVOKE,
       RevocationAction.REPLAY,
       RevocationAction.LIMIT,
+      RevocationAction.REPLACE,
+      RevocationAction.RECOVER_REPLACEMENT,
     ],
     [RevocationScope.USER]: [RevocationAction.OTHERS, RevocationAction.ALL],
     [RevocationScope.ORGANIZATION]: [RevocationAction.ADMIN_ALL],
@@ -91,12 +95,22 @@ SessionRevocationSchema.pre('validate', function () {
     [
       RevocationAction.LOGOUT,
       RevocationAction.REVOKE,
+      RevocationAction.REPLACE,
+      RevocationAction.RECOVER_REPLACEMENT,
       RevocationAction.ALL,
       RevocationAction.OTHERS,
     ].includes(this.action) &&
     this.targetUserId?.toString() !== this.actorUserId?.toString()
   )
     this.invalidate('targetUserId', 'Owned account required');
+  if (
+    [RevocationAction.REPLACE, RevocationAction.RECOVER_REPLACEMENT].includes(this.action) &&
+    (!this.organizationId ||
+      !this.actorOrganizationId ||
+      this.organizationId.toString() !== this.actorOrganizationId.toString() ||
+      this.actorSessionId === this.targetSessionId)
+  )
+    this.invalidate('organizationId', 'Replacement must stay in the same organization');
   if (this.action === RevocationAction.OTHERS && this.excludedSessionId !== this.actorSessionId)
     this.invalidate('excludedSessionId', 'Only current session can be excluded');
   if (this.action !== RevocationAction.OTHERS && this.excludedSessionId !== undefined)
