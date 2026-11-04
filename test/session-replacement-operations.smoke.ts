@@ -211,12 +211,14 @@ async function main() {
       (await admin.models.SessionRevocation.countDocuments({ action: 'replace_session' })) === 1,
     );
     phase = 'restricted-runtime-recovery';
+    const recoveryRequestId = randomUUID();
     const recovered = await http()
       .post('/api/auth/session-replacement/recover')
       .send({
         ...credentials,
         flowId: begun.body.recovery.flow_id,
         recoveryVerifier,
+        recoveryRequestId,
       });
     check(recovered.status === 200 && !!recovered.body.access_token);
     check(recovered.body.session_id !== confirmed.body.session_id);
@@ -241,8 +243,30 @@ async function main() {
       (
         await http()
           .post('/api/auth/session-replacement/recover')
-          .send({ ...credentials, flowId: begun.body.recovery.flow_id, recoveryVerifier })
-      ).status === 401,
+          .send({
+            ...credentials,
+            flowId: begun.body.recovery.flow_id,
+            recoveryVerifier,
+            recoveryRequestId,
+          })
+      ).status === 409,
+    );
+    const next = await http()
+      .post('/api/auth/session-replacement/recover')
+      .send({
+        ...credentials,
+        flowId: begun.body.recovery.flow_id,
+        recoveryVerifier,
+        recoveryRequestId: randomUUID(),
+      });
+    check(next.status === 200 && next.body.recovery_version === 2);
+    check(
+      (await http().get('/api/auth/sessions').auth(recovered.body.access_token, { type: 'bearer' }))
+        .status === 401,
+    );
+    check(
+      (await http().get('/api/auth/sessions').auth(next.body.access_token, { type: 'bearer' })).body
+        .items.length === 3,
     );
     phase = 'runtime-negative-acl';
     for (const collection of [
@@ -266,7 +290,7 @@ async function main() {
       writer.db.command({ collMod: 'session_replacement_challenges', validator: {} }),
     );
     console.info(
-      'PASS replacement and one-shot recovery authenticated HTTP/transaction/least-privilege ACL and source+compiled operator CLI; no runtime DDL or journal update/delete.',
+      'PASS replacement and repeated recovery v2 authenticated HTTP/transaction/least-privilege ACL and source+compiled operator CLI; no runtime DDL or journal update/delete.',
     );
   } finally {
     await app?.close();

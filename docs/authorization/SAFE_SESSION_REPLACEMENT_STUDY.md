@@ -1,6 +1,6 @@
 # #18 — Substituição explícita de sessões (proposta implementada para revisão)
 
-> Extensão posterior à revisão de `98818e4`: [recuperação com nova autenticação e prova privada por tentativa](SESSION_REPLACEMENT_RECOVERY_STUDY.md). Os resultados 280/128 abaixo são históricos da entrega original; a extensão tem testes/CI próprios. Não reenviamos tokens armazenados nem reutilizamos o ticket consumido.
+> Extensões posteriores: [primeira recuperação após 98818e4](SESSION_REPLACEMENT_RECOVERY_STUDY.md) e [recuperações sucessivas v2 após cf92402](SESSION_REPLACEMENT_REPEATED_RECOVERY_STUDY.md). O protocolo atual exige reautenticação por senha e a prova privada em cada operação, deduplica seu ID e troca somente a família atual, com orçamento 16 e prazo original. Os resultados 280/128 abaixo são históricos da entrega original; a extensão tem testes/CI próprios. Não reenviamos tokens armazenados nem reutilizamos o ticket consumido.
 
 ## Autorização e base
 

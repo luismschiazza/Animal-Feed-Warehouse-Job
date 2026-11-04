@@ -62,6 +62,7 @@ export class SessionReplacementController {
       dto.organizationId,
       dto.flowId,
       dto.recoveryVerifier,
+      dto.recoveryRequestId,
       {
         ip: req.ip,
         userAgent: req.headers?.['user-agent'],

@@ -12,6 +12,8 @@ export class RecoverSessionReplacementDto extends LoginRequestDto {
   organizationId: string;
   @IsUUID('4')
   flowId: string;
+  @IsUUID('4')
+  recoveryRequestId: string;
   @IsString()
   @Matches(/^[A-Za-z0-9_-]{43}$/)
   recoveryVerifier: string;

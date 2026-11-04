@@ -62,6 +62,8 @@ export class SecurityAuditRecord {
   reason: string;
   // Random flow identifier only, never the capability/token or its verifier.
   @Prop({ type: String, immutable: true }) replacementFlowId?: string;
+  @Prop({ type: String, immutable: true }) replacementRecoveryRequestId?: string;
+  @Prop({ type: Number, immutable: true, min: 1, max: 16 }) replacementRecoveryVersion?: number;
   @Prop({ type: String, immutable: true }) method?: string;
   @Prop({ type: String, immutable: true }) ip?: string;
 }

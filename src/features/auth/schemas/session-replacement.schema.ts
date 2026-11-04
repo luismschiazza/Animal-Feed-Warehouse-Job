@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Model, SchemaTypes, Types } from 'mongoose';
+import { MAX_REPLACEMENT_RECOVERIES } from '../tokens/session-replacement-recovery';
 import { SESSION_LIMIT_APPLICATION } from './session-limit-revision.schema';
 
 @Schema({ collection: 'session_replacement_challenges', autoCreate: false, autoIndex: false })
@@ -20,6 +21,10 @@ export class SessionReplacement {
   recoveryChallenge?: string;
   @Prop({ type: String }) admittedSessionId?: string;
   @Prop({ type: String }) recoveredSessionId?: string;
+  @Prop({ type: Number, default: 0, min: 0, max: MAX_REPLACEMENT_RECOVERIES })
+  recoveryVersion: number;
+  @Prop({ type: [String], default: [], select: false })
+  recoveryRequestIds: string[];
   @Prop({
     type: String,
     required: true,
@@ -42,6 +47,7 @@ const redact = (_doc: unknown, ret: Partial<SessionReplacement>) => {
   delete ret.secretHash;
   delete ret.passwordProof;
   delete ret.recoveryChallenge;
+  delete ret.recoveryRequestIds;
   return ret;
 };
 SessionReplacementSchema.set('toJSON', { versionKey: false, transform: redact });

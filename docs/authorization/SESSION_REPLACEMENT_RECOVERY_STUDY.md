@@ -1,5 +1,7 @@
 # Recuperação segura de resposta perdida — PR #29 / issue #18
 
+> Histórico da proposta de uso único em cf92402. A extensão atual permite recuperações sucessivas com senha/prova em cada chamada, ID de operação deduplicado, pointer da família atual e orçamento 16, sem renovar o prazo: [protocolo v2 e risco de reutilização da prova](SESSION_REPLACEMENT_REPEATED_RECOVERY_STUDY.md). As contagens e limites abaixo pertencem à versão anterior.
+
 ## Estudo e decisão antes de código
 
 Pesquisa realizada em 2026-11-04, antes da implementação; base examinada `98818e47d517a89ea61719f60882c56f6a6b949c`. Não autoriza merge, deploy ou fechamento. Respostas HTTPS oficiais e datas preservadas fora do Git em `D:/programacao/documentos/issue-18-recuperacao-resposta-pr29/fontes-oficiais/`.

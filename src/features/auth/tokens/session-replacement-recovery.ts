@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 
+// Bounded dedup history and work per attempt, never an increase in session quota/TTL.
+export const MAX_REPLACEMENT_RECOVERIES = 16;
+
 // Deliberately one fixed S256 method, never plain/downgrade. The client generates
 // 32 random bytes per attempt and keeps the canonical 43-character verifier private.
 export function isRecoveryChallenge(value: unknown): value is string {

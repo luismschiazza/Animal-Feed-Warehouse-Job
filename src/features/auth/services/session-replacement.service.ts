@@ -20,7 +20,11 @@ import {
 } from '../schemas/session-replacement.schema';
 import { RevocationAction } from '../schemas/session-revocation.schema';
 import { generateRefreshToken, isSessionId } from '../tokens/refresh-token';
-import { isRecoveryChallenge, recoveryChallenge } from '../tokens/session-replacement-recovery';
+import {
+  MAX_REPLACEMENT_RECOVERIES,
+  isRecoveryChallenge,
+  recoveryChallenge,
+} from '../tokens/session-replacement-recovery';
 import {
   REPLACEMENT_TTL_MS,
   generateReplacementToken,
@@ -200,6 +204,8 @@ export class SessionReplacementService {
               secretHash: token.secretHash,
               passwordProof: proof,
               recoveryChallenge: challenge,
+              recoveryVersion: 0,
+              recoveryRequestIds: [],
               state: 'pending',
               createdAt: now,
               expiresAt,
@@ -221,7 +227,16 @@ export class SessionReplacementService {
           replacement_required: true,
           replacement_token: token.token,
           expires_at: expiresAt,
-          ...(challenge ? { recovery: { flow_id: token.id, expires_at: expiresAt } } : {}),
+          ...(challenge
+            ? {
+                recovery: {
+                  flow_id: token.id,
+                  expires_at: expiresAt,
+                  protocol: 2,
+                  max_recoveries: MAX_REPLACEMENT_RECOVERIES,
+                },
+              }
+            : {}),
         };
       });
     } catch (error) {
@@ -338,12 +353,15 @@ export class SessionReplacementService {
   }
 
   // A fresh password AND a private per-attempt verifier are mandatory. This is
-  // one controlled replacement, never retrieval/retransmission of stored credentials.
+  // controlled replacement of the latest family, never retransmission of credentials.
+  // Each public operation ID is applied at most once; the private proof may authorize
+  // another intent only with fresh password authentication and within the fixed budget/TTL.
   async recover(
     user: AuthenticatedUser,
     organizationId: string,
     flowId: unknown,
     verifier: unknown,
+    recoveryRequestId: unknown,
     metadata: SessionMetadata = {},
   ) {
     let actor: AuditActor;
@@ -352,6 +370,7 @@ export class SessionReplacementService {
       const challenge = recoveryChallenge(verifier);
       if (
         !isSessionId(flowId) ||
+        !isSessionId(recoveryRequestId) ||
         !challenge ||
         typeof organizationId !== 'string' ||
         !/^[a-f0-9]{24}$/i.test(organizationId)
@@ -364,7 +383,7 @@ export class SessionReplacementService {
         userId: new Types.ObjectId(user.id),
         organizationId: new Types.ObjectId(organizationId),
         recoveryChallenge: challenge,
-        state: { $in: ['pending', 'consumed'] },
+        state: { $in: ['pending', 'consumed', 'recovered'] },
       };
       // Read-only rejection of garbage/replay before the global mutation queue.
       // Like preflight(), this does not authorize anything: repeat inside run().
@@ -387,7 +406,7 @@ export class SessionReplacementService {
             expiresAt: { $gt: now },
             createdAt: { $lte: now },
           })
-          .select('+passwordProof')
+          .select('+passwordProof +recoveryRequestIds')
           .session(session)
           .lean()
           .exec();
@@ -406,16 +425,48 @@ export class SessionReplacementService {
           ticket.membershipId.toString(),
           session,
         );
-        actor = { ...identity, replacementFlowId: ticket._id };
+        actor = {
+          ...identity,
+          replacementFlowId: ticket._id,
+          replacementRecoveryRequestId: recoveryRequestId,
+        };
         if (ticket.state === 'pending')
-          throw new ConflictException(
-            'Replacement not committed; retry within the original expiry',
-          );
-        if (!isSessionId(ticket.admittedSessionId)) throw this.invalid();
+          throw new ConflictException({
+            code: 'replacement_not_committed',
+            message: 'Replacement not committed; retry within the original expiry',
+          });
+        const version = ticket.recoveryVersion;
+        const ids = ticket.recoveryRequestIds;
+        if (
+          !isSessionId(ticket.admittedSessionId) ||
+          !Number.isSafeInteger(version) ||
+          version < 0 ||
+          version > MAX_REPLACEMENT_RECOVERIES ||
+          !Array.isArray(ids) ||
+          ids.length !== version ||
+          !ids.every(isSessionId) ||
+          new Set(ids).size !== ids.length ||
+          (version === 0
+            ? ticket.state !== 'consumed' || !!ticket.recoveredSessionId
+            : ticket.state !== 'recovered')
+        )
+          throw this.invalid();
+        if (ids.includes(recoveryRequestId))
+          throw new ConflictException({
+            code: 'recovery_already_applied',
+            message: 'Recovery request already applied; reauthenticate with a new request ID',
+          });
+        if (version >= MAX_REPLACEMENT_RECOVERIES)
+          throw new ConflictException({
+            code: 'recovery_budget_exhausted',
+            message: 'Recovery budget exhausted; start a new explicit flow',
+          });
+        const targetId = version === 0 ? ticket.admittedSessionId : ticket.recoveredSessionId;
+        if (!isSessionId(targetId)) throw this.invalid();
         const targets = await this.sessions
           .aggregate<AuthSession>([
             ...this.eligible(this.scope(ticket), now),
-            { $match: { sessionId: ticket.admittedSessionId, createdAt: { $type: 'date' } } },
+            { $match: { sessionId: targetId, createdAt: { $type: 'date' } } },
             { $limit: 1 },
             { $project: { _id: 0, sessionId: 1, userId: 1, organizationId: 1, expiresAt: 1 } },
           ])
@@ -427,13 +478,28 @@ export class SessionReplacementService {
           throw new ConflictException('Recovery cannot resolve the current session limit');
         const consumed = await this.tickets
           .updateOne(
-            { ...filter, state: 'consumed', admittedSessionId: ticket.admittedSessionId },
-            { $set: { state: 'recovered', recoveredSessionId: credential.sessionId } },
+            {
+              ...filter,
+              state: ticket.state,
+              recoveryVersion: version,
+              admittedSessionId: ticket.admittedSessionId,
+              ...(version > 0 ? { recoveredSessionId: targetId } : {}),
+              recoveryRequestIds: { $ne: recoveryRequestId },
+            },
+            {
+              $set: { state: 'recovered', recoveredSessionId: credential.sessionId },
+              $inc: { recoveryVersion: 1 },
+              $push: { recoveryRequestIds: recoveryRequestId },
+            },
             { session },
           )
           .exec();
         if (consumed.modifiedCount !== 1) throw this.invalid();
-        const resultingActor = { ...actor, sessionId: credential.sessionId };
+        const resultingActor = {
+          ...actor,
+          sessionId: credential.sessionId,
+          replacementRecoveryVersion: version + 1,
+        };
         await this.revocations.replaceInTransaction(
           targets[0],
           resultingActor,
@@ -482,9 +548,10 @@ export class SessionReplacementService {
           organizationId: identity.organizationId,
           membershipId: identity.membershipId,
           passwordProof: proof,
+          recoveryVersion: version + 1,
         };
       });
-      return await this.auth.completeReplacement(
+      const pair = await this.auth.completeReplacement(
         receipt.userId,
         receipt.organizationId,
         receipt.membershipId,
@@ -492,6 +559,11 @@ export class SessionReplacementService {
         credential.sessionId,
         credential.refreshToken,
       );
+      return {
+        ...pair,
+        recovery_version: receipt.recoveryVersion,
+        recovery_request_id: recoveryRequestId,
+      };
     } catch (error) {
       await this.audit.record(
         AuditEvent.REPLACEMENT_RECOVER,

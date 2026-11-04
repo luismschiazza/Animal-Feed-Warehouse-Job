@@ -5,7 +5,10 @@ import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { Connection, Model, Types } from 'mongoose';
+import { fork } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { join } from 'node:path';
 import * as request from 'supertest';
 import { AuditContext } from '@/common/audit/audit-context.service';
 import { AuditEvent } from '@/common/audit/security-audit.schema';
@@ -758,7 +761,10 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
     expect(r.headers['cache-control']).toBe('no-store');
     expect(r.body.recovery.flow_id).toBe(r.body.replacement_token.split('.')[1]);
     expect(r.body.recovery.expires_at).toBe(r.body.expires_at);
+    expect(r.body.recovery.protocol).toBe(2);
+    expect(r.body.recovery.max_recoveries).toBe(16);
     return {
+      recoveryRequestId: randomUUID(),
       old,
       verifier,
       challenge,
@@ -774,6 +780,7 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
         ...credentials(),
         flowId: attempt.flowId,
         recoveryVerifier: attempt.verifier,
+        recoveryRequestId: attempt.recoveryRequestId,
         ...overrides,
       });
   const confirmAttempt = (attempt: Attempt, i = 0) =>
@@ -999,7 +1006,7 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
     expect((await recover(attempt)).status).toBe(200);
   });
 
-  it('makes recovery one-shot even when its own HTTP response is lost; the client can use a new explicit flow', async () => {
+  it('deduplicates the same recovery intent after response loss and keeps the explicit new-flow fallback available', async () => {
     const attempt = await recoverableAttempt();
     expect((await confirmAttempt(attempt)).status).toBe(200);
     await loseCommittedResponse(() => recover(attempt), '/api/auth/session-replacement/recover');
@@ -1038,7 +1045,13 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
     await expect(
       apps[0]
         .get(SessionReplacementService)
-        .recover({ id: uid.toString() } as any, a.toString(), attempt.flowId, attempt.verifier),
+        .recover(
+          { id: uid.toString() } as any,
+          a.toString(),
+          attempt.flowId,
+          attempt.verifier,
+          randomUUID(),
+        ),
     ).rejects.toThrow('Password proof required');
     const fenceAfter = (await model('SessionSerialization')
       .findById(SESSION_LIMIT_APPLICATION)
@@ -1066,7 +1079,12 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
         await http()
           .post('/api/auth/session-replacement/recover')
           .query({ organizationId: b.toString() })
-          .send({ ...credentials(), flowId: attempt.flowId, recoveryVerifier: attempt.verifier })
+          .send({
+            ...credentials(),
+            flowId: attempt.flowId,
+            recoveryVerifier: attempt.verifier,
+            recoveryRequestId: attempt.recoveryRequestId,
+          })
       ).status,
     ).toBe(400);
     const stranger = await model('User').create({
@@ -1254,7 +1272,7 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
         ]);
         expect(arrived).toBe(2);
         if (other === 'recover') {
-          expect(result.map((r) => r.status).sort()).toEqual([200, 401]);
+          expect(result.map((r) => r.status).sort()).toEqual([200, 409]);
         } else {
           expect([200, 409]).toContain(result[0].status);
           expect([200, 401]).toContain(result[1].status);
@@ -1456,5 +1474,503 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
       stored.secretHash,
     ])
       expect(dump).not.toContain(secret);
+  });
+
+  it('recovers through three consecutive real socket losses without accumulating families or renewing either expiry', async () => {
+    const attempt = await recoverableAttempt();
+    await loseCommittedResponse(
+      () => confirmAttempt(attempt),
+      '/api/auth/session-replacement/confirm',
+    );
+    const before = await model('SessionReplacement').findById(attempt.flowId);
+    const original = await model('AuthSession').findOne({ sessionId: before.admittedSessionId });
+    const used: string[] = [];
+    for (let version = 1; version <= 3; version++) {
+      const id = randomUUID();
+      used.push(id);
+      await loseCommittedResponse(
+        () => recover(attempt, { recoveryRequestId: id }),
+        '/api/auth/session-replacement/recover',
+      );
+      const row = await model('SessionReplacement').findById(attempt.flowId);
+      expect(row.recoveryVersion).toBe(version);
+      expect(row.expiresAt).toEqual(before.expiresAt);
+      expect(
+        (await model('AuthSession').findOne({ sessionId: row.recoveredSessionId })).expiresAt,
+      ).toEqual(original.expiresAt);
+      expect(await rows()).toEqual({ sessions: 4 + version, rules: 1 + version });
+      expect(await active()).toHaveLength(3);
+      const replay = await recover(attempt, { recoveryRequestId: id }, 1);
+      expect(replay.status).toBe(409);
+      expect(replay.body.code).toBe('recovery_already_applied');
+      negative(replay);
+    }
+    const id = randomUUID(),
+      response = await recover(attempt, { recoveryRequestId: id }, 1);
+    expect(response.status).toBe(200);
+    expect(response.body.recovery_version).toBe(4);
+    expect(response.body.recovery_request_id).toBe(id);
+    expect(
+      (await http().get('/api/auth/sessions').auth(response.body.access_token, { type: 'bearer' }))
+        .status,
+    ).toBe(200);
+    const events = await model('SecurityAuditRecord')
+      .find({
+        event: AuditEvent.REPLACEMENT_RECOVER,
+        result: 'allowed',
+        replacementFlowId: attempt.flowId,
+      })
+      .sort({ replacementRecoveryVersion: 1 });
+    expect(events.map((e) => e.replacementRecoveryVersion)).toEqual([1, 2, 3, 4]);
+    expect(events.map((e) => e.replacementRecoveryRequestId)).toEqual([...used, id]);
+    expect(new Set(events.map((e) => e.sessionId)).size).toBe(4);
+    expect(await active()).toHaveLength(3);
+  });
+
+  it.each([false, true])(
+    'serializes later-generation requests in two instances; same ID=%s',
+    async (same) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      expect((await recover(attempt)).status).toBe(200);
+      let arrived = 0,
+        release: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const spies = apps.map((app) => {
+        const s = app.get(SessionSerializationService),
+          original = s.run.bind(s);
+        return jest.spyOn(s, 'run').mockImplementation(async (work) => {
+          if (++arrived === 2) release();
+          await gate;
+          return original(work);
+        });
+      });
+      const id = randomUUID(),
+        other = same ? id : randomUUID();
+      try {
+        const responses = await Promise.all([
+          recover(attempt, { recoveryRequestId: id }),
+          recover(attempt, { recoveryRequestId: other }, 1),
+        ]);
+        expect(arrived).toBe(2);
+        if (same) expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+        else {
+          expect(responses.every((r) => [200, 401].includes(r.status))).toBe(true);
+          expect(responses.some((r) => r.status === 200)).toBe(true);
+        }
+        const version = same ? 2 : 3;
+        const row = await model('SessionReplacement')
+          .findById(attempt.flowId)
+          .select('+recoveryRequestIds');
+        expect(row.recoveryVersion).toBe(version);
+        expect(new Set(row.recoveryRequestIds).size).toBe(version);
+        expect(await rows()).toEqual({ sessions: 4 + version, rules: 1 + version });
+        expect(await active()).toHaveLength(3);
+        for (const response of responses.filter((r) => r.status === 200)) {
+          const check = await http()
+            .get('/api/auth/sessions')
+            .auth(response.body.access_token, { type: 'bearer' });
+          expect(check.status).toBe(
+            response.body.session_id === row.recoveredSessionId ? 200 : 401,
+          );
+        }
+      } finally {
+        release();
+        spies.forEach((s) => s.mockRestore());
+      }
+    },
+  );
+
+  it('enforces the atomic budget of sixteen operations even if another unique ID is supplied', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    for (let i = 1; i <= 15; i++) {
+      const r = await recover(attempt, { recoveryRequestId: randomUUID() }, i % 2);
+      expect(r.status).toBe(200);
+      expect(r.body.recovery_version).toBe(i);
+    }
+    const boundary = await Promise.all([
+      recover(attempt, { recoveryRequestId: randomUUID() }),
+      recover(attempt, { recoveryRequestId: randomUUID() }, 1),
+    ]);
+    expect(boundary.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(boundary.find((r) => r.status === 409).body.code).toBe('recovery_budget_exhausted');
+    const before = await rows(),
+      denied = await recover(attempt, { recoveryRequestId: randomUUID() });
+    expect(denied.status).toBe(409);
+    expect(denied.body.code).toBe('recovery_budget_exhausted');
+    negative(denied);
+    const row = await model('SessionReplacement')
+      .findById(attempt.flowId)
+      .select('+recoveryRequestIds');
+    expect(row.recoveryVersion).toBe(16);
+    expect(row.recoveryRequestIds).toHaveLength(16);
+    expect(await rows()).toEqual(before);
+    expect(await active()).toHaveLength(3);
+  });
+
+  it.each(['revoked', 'expired'])(
+    'never falls back to an earlier family when the CURRENT generation is %s',
+    async (kind) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      expect((await recover(attempt)).status).toBe(200);
+      const latest = await recover(attempt, { recoveryRequestId: randomUUID() });
+      expect(latest.status).toBe(200);
+      if (kind === 'revoked')
+        expect(
+          (await http().post('/api/auth/logout').auth(latest.body.access_token, { type: 'bearer' }))
+            .status,
+        ).toBe(200);
+      else
+        await model('AuthSession').updateOne(
+          { sessionId: latest.body.session_id },
+          { $set: { expiresAt: new Date(0) } },
+        );
+      const before = await rows();
+      negative(await recover(attempt, { recoveryRequestId: randomUUID() }, 1));
+      expect(await rows()).toEqual(before);
+      expect((await model('SessionReplacement').findById(attempt.flowId)).recoveryVersion).toBe(2);
+    },
+  );
+
+  it('requires both factors AGAIN for new IDs and explicitly demonstrates the limit of joint password/proof compromise', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const legitimate = await recover(attempt);
+    expect(legitimate.status).toBe(200);
+    const before = await rows();
+    for (const fields of [
+      { password: undefined },
+      { password: 'wrong' },
+      { recoveryVerifier: undefined },
+      { recoveryVerifier: attempt.challenge },
+      { flowId: randomUUID() },
+      { organizationId: b.toString() },
+      { recoveryRequestId: undefined },
+    ])
+      negative(await recover(attempt, { recoveryRequestId: randomUUID(), ...fields }, 1));
+    expect(await rows()).toEqual(before);
+    // Not a claimed security guarantee: holder of BOTH factors can create another intent.
+    const compromised = await recover(attempt, { recoveryRequestId: randomUUID() }, 1);
+    expect(compromised.status).toBe(200);
+    expect(
+      (
+        await http()
+          .get('/api/auth/sessions')
+          .auth(legitimate.body.access_token, { type: 'bearer' })
+      ).status,
+    ).toBe(401);
+    await model('User').updateOne(
+      { _id: uid },
+      { $set: { password: await bcrypt.hash('new-password', 4) } },
+    );
+    negative(await recover(attempt, { recoveryRequestId: randomUUID() }));
+    negative(await recover(attempt, { recoveryRequestId: randomUUID(), password: 'new-password' }));
+    expect(await active()).toHaveLength(3);
+  });
+
+  it.each([false, true])(
+    'enforces original expiry after multiple generations, including after preflight=%s',
+    async (after) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      expect((await recover(attempt)).status).toBe(200);
+      expect((await recover(attempt, { recoveryRequestId: randomUUID() })).status).toBe(200);
+      const expire = async () => {
+        const now = (await db.db.admin().command({ hello: 1 })).localTime as Date;
+        await db.db
+          .collection<{
+            _id: string;
+            createdAt: Date;
+            expiresAt: Date;
+          }>('session_replacement_challenges')
+          .updateOne(
+            { _id: attempt.flowId },
+            {
+              $set: {
+                createdAt: new Date(now.getTime() - 120001),
+                expiresAt: new Date(now.getTime() - 1),
+              },
+            },
+          );
+      };
+      const serialization = apps[0].get(SessionSerializationService),
+        original = serialization.run.bind(serialization);
+      const spy = after
+        ? jest.spyOn(serialization, 'run').mockImplementationOnce(async (work) => {
+            await expire();
+            return original(work);
+          })
+        : undefined;
+      if (!after) await expire();
+      try {
+        const before = await rows();
+        const response = await recover(attempt, { recoveryRequestId: randomUUID() });
+        expect(response.status).toBe(401);
+        expect(await rows()).toEqual(before);
+        expect((await model('SessionReplacement').findById(attempt.flowId)).recoveryVersion).toBe(
+          2,
+        );
+        if (spy) expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        spy?.mockRestore();
+      }
+    },
+  );
+
+  it.each(['consume', 'revocation', 'insert', 'admission-audit', 'completion-audit'])(
+    'rolls back later-generation version, request ID and pointer on real failure at %s',
+    async (stage) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      const first = await recover(attempt);
+      expect(first.status).toBe(200);
+      const collection =
+        stage === 'consume'
+          ? 'session_replacement_challenges'
+          : stage === 'revocation'
+            ? 'auth_session_revocations'
+            : stage === 'insert'
+              ? 'auth_sessions'
+              : 'security_audit_events';
+      const validator =
+        stage === 'consume'
+          ? { recoveryVersion: 1 }
+          : stage === 'admission-audit'
+            ? { event: { $ne: AuditEvent.SESSION_ADMISSION } }
+            : stage === 'completion-audit'
+              ? { event: { $ne: AuditEvent.REPLACEMENT_RECOVER } }
+              : { impossible: { $exists: true } };
+      const id = randomUUID(),
+        before = await rows();
+      await db.db.command({ collMod: collection, validator, validationLevel: 'strict' });
+      try {
+        const response = await recover(attempt, { recoveryRequestId: id });
+        expect(response.status).toBe(503);
+        negative(response);
+        expect(await rows()).toEqual(before);
+        const row = await model('SessionReplacement')
+          .findById(attempt.flowId)
+          .select('+recoveryRequestIds');
+        expect(row.recoveryVersion).toBe(1);
+        expect(row.recoveryRequestIds).not.toContain(id);
+        expect(row.recoveredSessionId).toBe(first.body.session_id);
+      } finally {
+        await db.db.command({ collMod: collection, validator: {}, validationLevel: 'strict' });
+      }
+      const retried = await recover(attempt, { recoveryRequestId: id }, 1);
+      expect(retried.status).toBe(200);
+      expect(retried.body.recovery_version).toBe(2);
+      const duplicate = await recover(attempt, { recoveryRequestId: id });
+      expect(duplicate.status).toBe(409);
+      expect(duplicate.body.code).toBe('recovery_already_applied');
+    },
+  );
+
+  it('keeps owner/tenant/roles and reduced quota authoritative on later generations', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const first = await recover(attempt);
+    expect(first.status).toBe(200);
+    const stranger = await model('User').create({
+      name: 'Other',
+      email: 'later-owner@example.test',
+      password: await bcrypt.hash(password, 4),
+      status: 'active',
+    });
+    const before = await rows();
+    for (const fields of [
+      { email: stranger.email },
+      { organizationId: b.toString() },
+      { organizationId: undefined },
+      { userId: stranger.id },
+      { applicationId: 'other' },
+    ])
+      negative(await recover(attempt, { recoveryRequestId: randomUUID(), ...fields }, 1));
+    expect(await rows()).toEqual(before);
+    expect(
+      (
+        await http()
+          .patch('/api/auth/organization-session-limit')
+          .auth(first.body.access_token, { type: 'bearer' })
+          .send({ limit: 2, expectedVersion: 0 })
+      ).status,
+    ).toBe(200);
+    expect((await recover(attempt, { recoveryRequestId: randomUUID() })).status).toBe(409);
+    expect(await rows()).toEqual(before);
+    expect(
+      (
+        await http()
+          .delete(`/api/auth/sessions/${attempt.old[2].session_id}`)
+          .auth(first.body.access_token, { type: 'bearer' })
+      ).status,
+    ).toBe(200);
+    await model('OrganizationMembership').updateOne(
+      { userId: uid, organizationId: a },
+      { $set: { roles: ['CUSTOMER'] } },
+    );
+    const next = await recover(attempt, { recoveryRequestId: randomUUID() }, 1);
+    expect(next.status).toBe(200);
+    expect(next.body.recovery_version).toBe(2);
+    expect(
+      JSON.parse(Buffer.from(next.body.access_token.split('.')[1], 'base64url').toString()).roles,
+    ).toEqual(['CUSTOMER']);
+    expect(await active()).toHaveLength(2);
+    expect(
+      (await model('AuthSession').findOne({ sessionId: next.body.session_id })).admissionVersion,
+    ).toBe(1);
+  });
+
+  it('does not treat a noncanonical uppercase operation ID as a new authorized spelling of an applied ID', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    expect((await recover(attempt, { recoveryRequestId: id })).status).toBe(200);
+    const before = await rows();
+    expect((await recover(attempt, { recoveryRequestId: id.toUpperCase() })).status).toBe(401);
+    expect(await rows()).toEqual(before);
+    const duplicate = await recover(attempt, { recoveryRequestId: id });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.code).toBe('recovery_already_applied');
+  });
+
+  it.each(['missing', 'counter', 'history', 'original-pointer'])(
+    'rejects inconsistent metadata (%s) instead of inventing another active family',
+    async (kind) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      if (kind === 'original-pointer') expect((await recover(attempt)).status).toBe(200);
+      const collection = db.db.collection<{
+        _id: string;
+        recoveryVersion?: number;
+        recoveryRequestIds?: string[];
+        admittedSessionId?: string;
+      }>('session_replacement_challenges');
+      if (kind === 'missing')
+        await collection.updateOne(
+          { _id: attempt.flowId },
+          { $unset: { recoveryVersion: '', recoveryRequestIds: '' } },
+        );
+      if (kind === 'counter')
+        await collection.updateOne({ _id: attempt.flowId }, { $set: { recoveryVersion: 2 } });
+      if (kind === 'history')
+        await collection.updateOne(
+          { _id: attempt.flowId },
+          { $set: { recoveryRequestIds: [randomUUID()] } },
+        );
+      if (kind === 'original-pointer')
+        await collection.updateOne({ _id: attempt.flowId }, { $unset: { admittedSessionId: '' } });
+      const before = await rows();
+      negative(await recover(attempt, { recoveryRequestId: randomUUID() }));
+      expect(await rows()).toEqual(before);
+    },
+  );
+
+  it('continues in another real process after killing a worker AFTER its committed recovery and before its response', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const children: ReturnType<typeof fork>[] = [];
+    const waitFor = (child: ReturnType<typeof fork>, event: string) =>
+      new Promise<any>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timer);
+          child.off('message', message);
+          child.off('exit', exited);
+        };
+        const message = (value: any) => {
+          if (value?.event === event) {
+            cleanup();
+            resolve(value);
+          } else if (value?.event === 'fixture-failed') {
+            cleanup();
+            reject(new Error('Disposable restart fixture failed'));
+          }
+        };
+        const exited = () => {
+          cleanup();
+          reject(new Error('Disposable restart fixture exited'));
+        };
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Disposable restart fixture startup deadline'));
+        }, 30000);
+        child.on('message', message);
+        child.on('exit', exited);
+      });
+    const startChild = async (drop: boolean) => {
+      const child = fork(join(__dirname, 'replacement-recovery-restart.fixture.ts'), [], {
+        cwd: join(__dirname, '..'),
+        execArgv: ['-r', 'ts-node/register', '-r', 'tsconfig-paths/register'],
+        env: {
+          ...process.env,
+          REPLACEMENT_RESTART_TEST_DATABASE: database,
+          REPLACEMENT_RESTART_TEST_DROP_AFTER_COMMIT: drop ? '1' : '0',
+        },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      children.push(child);
+      child.stdout.resume();
+      child.stderr.resume();
+      return { child, port: (await waitFor(child, 'ready')).port };
+    };
+    const stop = async (child: ReturnType<typeof fork>) => {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, 'exit');
+        child.kill('SIGKILL');
+        await exited;
+      }
+    };
+    try {
+      const first = await startChild(true),
+        committed = waitFor(first.child, 'replacement-committed');
+      const id = randomUUID();
+      const pending = request(`http://127.0.0.1:${first.port}`)
+        .post('/api/auth/session-replacement/recover')
+        .send({
+          ...credentials(),
+          flowId: attempt.flowId,
+          recoveryVerifier: attempt.verifier,
+          recoveryRequestId: id,
+        })
+        .then(
+          () => 'response',
+          () => 'lost',
+        );
+      await committed;
+      expect((await model('SessionReplacement').findById(attempt.flowId)).recoveryVersion).toBe(1);
+      await stop(first.child);
+      expect(await pending).toBe('lost');
+      const restarted = await startChild(false);
+      expect(restarted.child.pid).not.toBe(first.child.pid);
+      const send = (operationId: string) =>
+        request(`http://127.0.0.1:${restarted.port}`)
+          .post('/api/auth/session-replacement/recover')
+          .send({
+            ...credentials(),
+            flowId: attempt.flowId,
+            recoveryVerifier: attempt.verifier,
+            recoveryRequestId: operationId,
+          });
+      const duplicate = await send(id);
+      expect(duplicate.status).toBe(409);
+      expect(duplicate.body.code).toBe('recovery_already_applied');
+      const recovered = await send(randomUUID());
+      expect(recovered.status).toBe(200);
+      expect(recovered.body.recovery_version).toBe(2);
+      expect(await rows()).toEqual({ sessions: 6, rules: 3 });
+      expect(await active()).toHaveLength(3);
+      expect(
+        (
+          await http()
+            .get('/api/auth/sessions')
+            .auth(recovered.body.access_token, { type: 'bearer' })
+        ).status,
+      ).toBe(200);
+    } finally {
+      for (const child of children) await stop(child);
+    }
   });
 });
