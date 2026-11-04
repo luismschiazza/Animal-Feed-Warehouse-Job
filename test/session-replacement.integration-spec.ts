@@ -5,7 +5,7 @@ import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { Connection, Model, Types } from 'mongoose';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import * as request from 'supertest';
 import { AuditContext } from '@/common/audit/audit-context.service';
 import { AuditEvent } from '@/common/audit/security-audit.schema';
@@ -16,6 +16,7 @@ import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit
 import { AuthSessionsService } from '@/features/auth/services/auth-sessions.service';
 import { AuthService } from '@/features/auth/services/auth.service';
 import { SessionReplacementService } from '@/features/auth/services/session-replacement.service';
+import { SessionRevocationsService } from '@/features/auth/services/session-revocations.service';
 import { SessionSerializationService } from '@/features/auth/services/session-serialization.service';
 import { generateReplacementToken } from '@/features/auth/tokens/session-replacement-token';
 
@@ -743,5 +744,717 @@ describe('#18 explicit replacement — two HTTP instances, real disposable repli
     } finally {
       probes.forEach((p) => p.mockRestore());
     }
+  });
+
+  // Independent client-side S256 construction; do not use the server's proof helper.
+  async function recoverableAttempt() {
+    const old = await fill();
+    const verifier = randomBytes(32).toString('base64url');
+    const challenge = createHash('sha256').update(verifier, 'ascii').digest('base64url');
+    const r = await http()
+      .post('/api/auth/session-replacement/start')
+      .send({ ...credentials(), recoveryChallenge: challenge });
+    expect(r.status).toBe(201);
+    expect(r.headers['cache-control']).toBe('no-store');
+    expect(r.body.recovery.flow_id).toBe(r.body.replacement_token.split('.')[1]);
+    expect(r.body.recovery.expires_at).toBe(r.body.expires_at);
+    return {
+      old,
+      verifier,
+      challenge,
+      flowId: r.body.recovery.flow_id as string,
+      token: r.body.replacement_token as string,
+    };
+  }
+  type Attempt = Awaited<ReturnType<typeof recoverableAttempt>>;
+  const recover = (attempt: Attempt, overrides = {}, i = 0) =>
+    http(i)
+      .post('/api/auth/session-replacement/recover')
+      .send({
+        ...credentials(),
+        flowId: attempt.flowId,
+        recoveryVerifier: attempt.verifier,
+        ...overrides,
+      });
+  const confirmAttempt = (attempt: Attempt, i = 0) =>
+    flow('confirm', attempt.token, { sessionId: attempt.old[0].session_id }, i);
+
+  async function loseCommittedResponse(operation: () => ReturnType<typeof recover>, route: string) {
+    let entered: () => void, release: () => void, finished: () => void, closed: () => void;
+    const committed = new Promise<void>((r) => {
+      entered = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const completed = new Promise<void>((r) => {
+      finished = r;
+    });
+    const socketClosed = new Promise<void>((r) => {
+      closed = r;
+    });
+    const auth = apps[0].get(AuthService),
+      original = auth.completeReplacement.bind(auth),
+      server = apps[0].getHttpServer();
+    const onRequest = (req, res) => {
+      if (req.url === route) res.once('close', () => closed());
+    };
+    server.on('request', onRequest);
+    const spy = jest.spyOn(auth, 'completeReplacement').mockImplementationOnce(async (...args) => {
+      entered();
+      await gate;
+      try {
+        return await original(...args);
+      } finally {
+        finished();
+      }
+    });
+    const pending = operation();
+    const result = pending.then(
+      () => 'response',
+      () => 'aborted',
+    );
+    try {
+      await committed;
+      pending.abort();
+      await socketClosed;
+      expect(await result).toBe('aborted');
+      release();
+      await completed;
+    } finally {
+      release();
+      spy.mockRestore();
+      server.removeListener('request', onRequest);
+    }
+  }
+
+  it('recovers by fresh password and per-attempt proof, invalidating the exact prior result without extending its lifetime or occupying another slot', async () => {
+    const attempt = await recoverableAttempt(),
+      first = await confirmAttempt(attempt);
+    expect(first.status).toBe(200);
+    const original = await model('AuthSession').findOne({ sessionId: first.body.session_id });
+    const response = await recover(attempt, {}, 1);
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body.session_id).not.toBe(first.body.session_id);
+    expect(response.body.organization_id).toBe(a.toString());
+    expect(await rows()).toEqual({ sessions: 5, rules: 2 });
+    expect(await active()).toHaveLength(3);
+    const created = await model('AuthSession').findOne({ sessionId: response.body.session_id });
+    expect(created.expiresAt).toEqual(original.expiresAt);
+    expect(created.admissionSequence).toBeGreaterThan(original.admissionSequence);
+    expect(
+      (await http().get('/api/auth/sessions').auth(first.body.access_token, { type: 'bearer' }))
+        .status,
+    ).toBe(401);
+    negative(
+      await http().post('/api/auth/refresh').send({ refreshToken: first.body.refresh_token }),
+    );
+    expect(
+      (await http().get('/api/auth/sessions').auth(response.body.access_token, { type: 'bearer' }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await http().get('/api/auth/sessions').auth(attempt.old[1].access_token, { type: 'bearer' }))
+        .status,
+    ).toBe(200);
+    const ticketRow = await model('SessionReplacement').findById(attempt.flowId);
+    expect(ticketRow.state).toBe('recovered');
+    expect(ticketRow.admittedSessionId).toBe(first.body.session_id);
+    expect(ticketRow.recoveredSessionId).toBe(response.body.session_id);
+    const rule = await model('SessionRevocation').findOne({
+      action: 'recover_session_replacement',
+    });
+    expect(rule.targetSessionId).toBe(first.body.session_id);
+    expect(rule.actorSessionId).toBe(response.body.session_id);
+    const event = await model('SecurityAuditRecord').findOne({
+      event: AuditEvent.REPLACEMENT_RECOVER,
+      result: 'allowed',
+    });
+    expect(event.replacementFlowId).toBe(attempt.flowId);
+    expect(event.requestId).toBe(rule.requestId);
+    expect(event.actorUserId.toString()).toBe(uid.toString());
+    expect(event.organizationId.toString()).toBe(a.toString());
+    const before = await rows();
+    negative(await recover(attempt));
+    negative(await confirmAttempt(attempt));
+    expect(await rows()).toEqual(before);
+  });
+
+  it('does not admit anything on a proven recovery before confirm commits; failed original transaction remains retryable', async () => {
+    const attempt = await recoverableAttempt(),
+      before = await rows();
+    expect((await recover(attempt)).status).toBe(409);
+    expect(await rows()).toEqual(before);
+    await db.db.command({
+      collMod: 'auth_session_revocations',
+      validator: { impossible: { $exists: true } },
+      validationLevel: 'strict',
+    });
+    try {
+      expect((await confirmAttempt(attempt)).status).toBe(503);
+    } finally {
+      await db.db.command({
+        collMod: 'auth_session_revocations',
+        validator: {},
+        validationLevel: 'strict',
+      });
+    }
+    expect((await recover(attempt)).status).toBe(409);
+    expect(await rows()).toEqual(before);
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    expect((await recover(attempt)).status).toBe(200);
+  });
+
+  it('recovers after an actual HTTP socket loss after the original commit', async () => {
+    const attempt = await recoverableAttempt();
+    await loseCommittedResponse(
+      () => confirmAttempt(attempt),
+      '/api/auth/session-replacement/confirm',
+    );
+    expect(await rows()).toEqual({ sessions: 4, rules: 1 });
+    expect((await recover(attempt, {}, 1)).status).toBe(200);
+    expect(await rows()).toEqual({ sessions: 5, rules: 2 });
+    expect(await active()).toHaveLength(3);
+    negative(await confirmAttempt(attempt));
+    negative(await recover(attempt));
+  });
+
+  it('handles actual response loss before a real transaction rejection without assuming the request was cancelled', async () => {
+    const attempt = await recoverableAttempt(),
+      server = apps[0].getHttpServer();
+    let entered: () => void, release: () => void, finished: () => void, closed: () => void;
+    const inside = new Promise<void>((r) => {
+        entered = r;
+      }),
+      gate = new Promise<void>((r) => {
+        release = r;
+      });
+    const done = new Promise<void>((r) => {
+        finished = r;
+      }),
+      socketClosed = new Promise<void>((r) => {
+        closed = r;
+      });
+    const service = apps[0].get(SessionReplacementService),
+      originalConfirm = service.confirm.bind(service);
+    const confirmSpy = jest.spyOn(service, 'confirm').mockImplementationOnce(async (...args) => {
+      try {
+        return await originalConfirm(...args);
+      } finally {
+        finished();
+      }
+    });
+    const revocations = apps[0].get(SessionRevocationsService),
+      original = revocations.replaceInTransaction.bind(revocations);
+    const spy = jest
+      .spyOn(revocations, 'replaceInTransaction')
+      .mockImplementationOnce(async (...args) => {
+        entered();
+        await gate;
+        return original(...args);
+      });
+    const onRequest = (req, res) => {
+      if (req.url === '/api/auth/session-replacement/confirm') res.once('close', () => closed());
+    };
+    server.on('request', onRequest);
+    await db.db.command({
+      collMod: 'auth_session_revocations',
+      validator: { impossible: { $exists: true } },
+      validationLevel: 'strict',
+    });
+    const pending = confirmAttempt(attempt),
+      result = pending.then(
+        () => 'response',
+        () => 'aborted',
+      );
+    try {
+      await inside;
+      pending.abort();
+      await socketClosed;
+      expect(await result).toBe('aborted');
+      release();
+      await done;
+      expect(await rows()).toEqual({ sessions: 3, rules: 0 });
+      expect((await recover(attempt, {}, 1)).status).toBe(409);
+      expect(
+        (
+          await http()
+            .get('/api/auth/sessions')
+            .auth(attempt.old[0].access_token, { type: 'bearer' })
+        ).status,
+      ).toBe(200);
+    } finally {
+      release();
+      spy.mockRestore();
+      confirmSpy.mockRestore();
+      server.removeListener('request', onRequest);
+      await db.db.command({
+        collMod: 'auth_session_revocations',
+        validator: {},
+        validationLevel: 'strict',
+      });
+    }
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    expect((await recover(attempt)).status).toBe(200);
+  });
+
+  it('makes recovery one-shot even when its own HTTP response is lost; the client can use a new explicit flow', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    await loseCommittedResponse(() => recover(attempt), '/api/auth/session-replacement/recover');
+    expect(await rows()).toEqual({ sessions: 5, rules: 2 });
+    negative(await recover(attempt, {}, 1));
+    const lostId = (await model('SessionReplacement').findById(attempt.flowId)).recoveredSessionId;
+    const next = await ticket();
+    expect((await flow('sessions', next)).body.items.some((x) => x.sessionId === lostId)).toBe(
+      true,
+    );
+    expect((await flow('confirm', next, { sessionId: lostId }, 1)).status).toBe(200);
+    expect(await active()).toHaveLength(3);
+    expect(await rows()).toEqual({ sessions: 6, rules: 3 });
+  });
+
+  it('rejects UUID/challenge/sr1/JWT/refresh theft, absent or wrong password and forged service identity without fence writes', async () => {
+    const attempt = await recoverableAttempt(),
+      first = await confirmAttempt(attempt),
+      before = await rows();
+    const fenceBefore = (await model('SessionSerialization')
+      .findById(SESSION_LIMIT_APPLICATION)
+      .lean()) as any;
+    for (const value of [
+      randomBytes(32).toString('base64url'),
+      attempt.challenge,
+      attempt.token,
+      first.body.refresh_token,
+      first.body.access_token,
+      '',
+      undefined,
+    ])
+      negative(await recover(attempt, { recoveryVerifier: value }));
+    negative(await recover(attempt, { password: 'wrong' }));
+    negative(await recover(attempt, { password: undefined }));
+    negative(await recover(attempt, { flowId: randomUUID() }));
+    await expect(
+      apps[0]
+        .get(SessionReplacementService)
+        .recover({ id: uid.toString() } as any, a.toString(), attempt.flowId, attempt.verifier),
+    ).rejects.toThrow('Password proof required');
+    const fenceAfter = (await model('SessionSerialization')
+      .findById(SESSION_LIMIT_APPLICATION)
+      .lean()) as any;
+    expect(fenceAfter.sequence).toBe(fenceBefore.sequence);
+    expect(await rows()).toEqual(before);
+    expect((await recover(attempt)).status).toBe(200);
+  });
+
+  it('requires opt-in proof bound before confirm and refuses client authority fields/query and cross-context recovery', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const before = await rows();
+    for (const extra of [
+      { organizationId: b.toString() },
+      { organizationId: undefined },
+      { applicationId: 'another' },
+      { userId: new Types.ObjectId().toString() },
+      { sessionId: attempt.old[1].session_id },
+      { roles: ['SYSTEM_ADMIN'] },
+    ])
+      negative(await recover(attempt, extra));
+    expect(
+      (
+        await http()
+          .post('/api/auth/session-replacement/recover')
+          .query({ organizationId: b.toString() })
+          .send({ ...credentials(), flowId: attempt.flowId, recoveryVerifier: attempt.verifier })
+      ).status,
+    ).toBe(400);
+    const stranger = await model('User').create({
+      name: 'Other',
+      email: 'other-recovery@example.test',
+      password: await bcrypt.hash(password, 4),
+      status: 'active',
+    });
+    negative(await recover(attempt, { email: stranger.email }));
+    expect(await rows()).toEqual(before);
+    expect((await recover(attempt)).status).toBe(200);
+    const oldStyle = await ticket();
+    expect((await flow('confirm', oldStyle, { sessionId: attempt.old[1].session_id })).status).toBe(
+      200,
+    );
+    negative(await recover(attempt, { flowId: oldStyle.split('.')[1] }));
+  });
+
+  it.each(['account', 'organization', 'membership', 'password', 'recreated-membership'])(
+    'requires current identity and original membership/credential context on recovery: %s',
+    async (kind) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      if (kind === 'account')
+        await model('User').updateOne({ _id: uid }, { $set: { status: 'suspended' } });
+      if (kind === 'organization')
+        await model('Organization').updateOne({ _id: a }, { $set: { status: 'suspended' } });
+      if (kind === 'membership')
+        await model('OrganizationMembership').updateOne(
+          { userId: uid, organizationId: a },
+          { $set: { status: 'suspended' } },
+        );
+      if (kind === 'password')
+        await model('User').updateOne(
+          { _id: uid },
+          { $set: { password: await bcrypt.hash('changed-password', 4) } },
+        );
+      if (kind === 'recreated-membership') {
+        await model('OrganizationMembership').deleteOne({ userId: uid, organizationId: a });
+        await model('OrganizationMembership').create({
+          userId: uid,
+          organizationId: a,
+          status: 'active',
+          roles: ['SYSTEM_ADMIN'],
+        });
+      }
+      const before = await rows();
+      negative(await recover(attempt, kind === 'password' ? { password: 'changed-password' } : {}));
+      expect(await rows()).toEqual(before);
+      expect((await model('SessionReplacement').findById(attempt.flowId)).state).toBe('consumed');
+    },
+  );
+
+  it.each([false, true])(
+    'enforces recovery expiry with TTL disabled, including after preflight=%s',
+    async (afterPreflight) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      const expire = async () => {
+        const now = (await db.db.admin().command({ hello: 1 })).localTime as Date;
+        await db.db
+          .collection<{
+            _id: string;
+            createdAt: Date;
+            expiresAt: Date;
+          }>('session_replacement_challenges')
+          .updateOne(
+            { _id: attempt.flowId },
+            {
+              $set: {
+                createdAt: new Date(now.getTime() - 120001),
+                expiresAt: new Date(now.getTime() - 1),
+              },
+            },
+          );
+      };
+      const serialization = apps[0].get(SessionSerializationService),
+        original = serialization.run.bind(serialization);
+      const spy = afterPreflight
+        ? jest.spyOn(serialization, 'run').mockImplementationOnce(async (work) => {
+            await expire();
+            return original(work);
+          })
+        : undefined;
+      if (!afterPreflight) await expire();
+      try {
+        const before = await rows();
+        expect((await recover(attempt)).status).toBe(401);
+        expect(await rows()).toEqual(before);
+        expect((await model('SessionReplacement').findById(attempt.flowId)).state).toBe('consumed');
+        if (spy) expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        spy?.mockRestore();
+      }
+      const fallback = await ticket();
+      expect((await flow('sessions', fallback)).status).toBe(200);
+    },
+  );
+
+  it.each(['revoked', 'expired'])(
+    'does not silently replace a recovery target that is already %s',
+    async (kind) => {
+      const attempt = await recoverableAttempt(),
+        first = await confirmAttempt(attempt);
+      expect(first.status).toBe(200);
+      if (kind === 'expired')
+        await model('AuthSession').updateOne(
+          { sessionId: first.body.session_id },
+          { $set: { expiresAt: new Date(0) } },
+        );
+      else
+        expect(
+          (await http().post('/api/auth/logout').auth(first.body.access_token, { type: 'bearer' }))
+            .status,
+        ).toBe(200);
+      const before = await rows();
+      negative(await recover(attempt));
+      expect(await rows()).toEqual(before);
+    },
+  );
+
+  it('uses current roles and denies recovery above a reduced limit without multi-eviction', async () => {
+    const attempt = await recoverableAttempt(),
+      first = await confirmAttempt(attempt);
+    expect(first.status).toBe(200);
+    expect(
+      (
+        await http()
+          .patch('/api/auth/organization-session-limit')
+          .auth(attempt.old[1].access_token, { type: 'bearer' })
+          .send({ limit: 1, expectedVersion: 0 })
+      ).status,
+    ).toBe(200);
+    const before = await rows();
+    expect((await recover(attempt)).status).toBe(409);
+    expect(await rows()).toEqual(before);
+    for (const row of attempt.old.slice(1))
+      expect(
+        (
+          await http()
+            .delete(`/api/auth/sessions/${row.session_id}`)
+            .auth(first.body.access_token, { type: 'bearer' })
+        ).status,
+      ).toBe(200);
+    await model('OrganizationMembership').updateOne(
+      { userId: uid, organizationId: a },
+      { $set: { roles: ['CUSTOMER'] } },
+    );
+    const response = await recover(attempt);
+    expect(response.status).toBe(200);
+    expect(await active()).toHaveLength(1);
+    expect(
+      JSON.parse(Buffer.from(response.body.access_token.split('.')[1], 'base64url').toString())
+        .roles,
+    ).toEqual(['CUSTOMER']);
+    expect(
+      (await model('AuthSession').findOne({ sessionId: response.body.session_id }))
+        .admissionVersion,
+    ).toBe(1);
+  });
+
+  it.each(['confirm', 'recover'])(
+    'serializes recovery versus %s across independent instances without extra capacity',
+    async (other) => {
+      const attempt = await recoverableAttempt();
+      if (other === 'recover') expect((await confirmAttempt(attempt)).status).toBe(200);
+      let arrived = 0,
+        release: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const spies = apps.map((app) => {
+        const s = app.get(SessionSerializationService),
+          original = s.run.bind(s);
+        return jest.spyOn(s, 'run').mockImplementation(async (work) => {
+          if (++arrived === 2) release();
+          await gate;
+          return original(work);
+        });
+      });
+      try {
+        const result = await Promise.all([
+          recover(attempt),
+          other === 'confirm' ? confirmAttempt(attempt, 1) : recover(attempt, {}, 1),
+        ]);
+        expect(arrived).toBe(2);
+        if (other === 'recover') {
+          expect(result.map((r) => r.status).sort()).toEqual([200, 401]);
+        } else {
+          expect([200, 409]).toContain(result[0].status);
+          expect([200, 401]).toContain(result[1].status);
+        }
+        const didRecover =
+          (await model('SessionReplacement').findById(attempt.flowId)).state === 'recovered';
+        expect(await rows()).toEqual({ sessions: didRecover ? 5 : 4, rules: didRecover ? 2 : 1 });
+        expect(await active()).toHaveLength(3);
+        expect(
+          await model('SecurityAuditRecord').countDocuments({
+            event: AuditEvent.REPLACEMENT_RECOVER,
+            result: 'allowed',
+          }),
+        ).toBe(didRecover ? 1 : 0);
+      } finally {
+        release();
+        spies.forEach((s) => s.mockRestore());
+      }
+    },
+  );
+
+  it.each(['consume', 'revocation', 'insert', 'admission-audit', 'completion-audit'])(
+    'rolls back recovery completely after a real MongoDB rejection at %s',
+    async (stage) => {
+      const attempt = await recoverableAttempt(),
+        first = await confirmAttempt(attempt);
+      expect(first.status).toBe(200);
+      const collection =
+        stage === 'consume'
+          ? 'session_replacement_challenges'
+          : stage === 'revocation'
+            ? 'auth_session_revocations'
+            : stage === 'insert'
+              ? 'auth_sessions'
+              : 'security_audit_events';
+      const validator =
+        stage === 'consume'
+          ? { state: 'consumed' }
+          : stage === 'admission-audit'
+            ? { event: { $ne: AuditEvent.SESSION_ADMISSION } }
+            : stage === 'completion-audit'
+              ? { event: { $ne: AuditEvent.REPLACEMENT_RECOVER } }
+              : { impossible: { $exists: true } };
+      await db.db.command({ collMod: collection, validator, validationLevel: 'strict' });
+      try {
+        const before = await rows();
+        const response = await recover(attempt);
+        expect(response.status).toBe(503);
+        negative(response);
+        expect(await rows()).toEqual(before);
+        expect((await model('SessionReplacement').findById(attempt.flowId)).state).toBe('consumed');
+      } finally {
+        await db.db.command({ collMod: collection, validator: {}, validationLevel: 'strict' });
+      }
+      expect(
+        (await http().get('/api/auth/sessions').auth(first.body.access_token, { type: 'bearer' }))
+          .status,
+      ).toBe(200);
+      expect((await recover(attempt, {}, 1)).status).toBe(200);
+    },
+  );
+
+  it('handles real commit connection loss once without duplicated recovery effects', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const failure = {
+      configureFailPoint: 'failCommand',
+      mode: { times: 1 },
+      data: { failCommands: ['commitTransaction'], closeConnection: true },
+    };
+    await db.db.admin().command(failure);
+    try {
+      expect((await recover(attempt)).status).toBe(200);
+      expect(await rows()).toEqual({ sessions: 5, rules: 2 });
+      expect(await active()).toHaveLength(3);
+    } finally {
+      await db.db.admin().command({ configureFailPoint: 'failCommand', mode: 'off' });
+    }
+  });
+
+  it('binds the private proof to its own attempt and tenant, never to public challenge or a cancelled capability', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    await fill(b);
+    const verifierB = randomBytes(32).toString('base64url'),
+      challengeB = createHash('sha256').update(verifierB).digest('base64url');
+    const begunB = await http()
+      .post('/api/auth/session-replacement/start')
+      .send({ ...credentials(b), recoveryChallenge: challengeB });
+    expect(begunB.status).toBe(201);
+    const before = await rows();
+    negative(
+      await recover(attempt, {
+        organizationId: b.toString(),
+        flowId: begunB.body.recovery.flow_id,
+      }),
+    );
+    negative(await recover(attempt, { recoveryVerifier: verifierB }));
+    expect((await flow('cancel', begunB.body.replacement_token)).status).toBe(200);
+    negative(
+      await recover(attempt, {
+        organizationId: b.toString(),
+        flowId: begunB.body.recovery.flow_id,
+        recoveryVerifier: verifierB,
+      }),
+    );
+    expect(await rows()).toEqual(before);
+    await db.db
+      .collection<{ _id: string; applicationId: string }>('session_replacement_challenges')
+      .updateOne({ _id: attempt.flowId }, { $set: { applicationId: 'foreign-application' } });
+    negative(await recover(attempt));
+    expect(await rows()).toEqual(before);
+  });
+
+  it('normalizes a valid uppercase organization ID without creating an unusable postcommit receipt', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const response = await recover(attempt, { organizationId: a.toString().toUpperCase() });
+    expect(response.status).toBe(200);
+    expect(response.body.organization_id).toBe(a.toString());
+  });
+
+  it.each(['clock', 'account', 'membership', 'login-audit'])(
+    'does not return credentials or undo committed recovery on postcommit %s failure',
+    async (kind) => {
+      const attempt = await recoverableAttempt();
+      expect((await confirmAttempt(attempt)).status).toBe(200);
+      const auth = apps[0].get(AuthService),
+        original = auth.completeReplacement.bind(auth),
+        fence = model('SessionSerialization');
+      const saved = (await fence.findById(SESSION_LIMIT_APPLICATION).lean()) as any;
+      const audit = apps[0].get(SecurityAuditService),
+        originalAudit = audit.record.bind(audit);
+      const auditSpy = jest.spyOn(audit, 'record').mockImplementation(async (...args) => {
+        if (kind === 'login-audit' && args[0] === AuditEvent.LOGIN && args[1] === 'allowed')
+          throw new ServiceUnavailableException('Injected audit failure');
+        return originalAudit(...args);
+      });
+      const spy = jest
+        .spyOn(auth, 'completeReplacement')
+        .mockImplementationOnce(async (...args) => {
+          if (kind === 'clock')
+            await fence.updateOne(
+              { _id: SESSION_LIMIT_APPLICATION },
+              { $set: { serverNow: new Date(Date.now() + 60000) } },
+            );
+          if (kind === 'account')
+            await model('User').updateOne({ _id: uid }, { $set: { status: 'suspended' } });
+          if (kind === 'membership')
+            await model('OrganizationMembership').updateOne(
+              { userId: uid, organizationId: a },
+              { $set: { status: 'suspended' } },
+            );
+          return original(...args);
+        });
+      try {
+        const result = await recover(attempt);
+        expect(result.status).toBeGreaterThanOrEqual(400);
+        negative(result);
+        expect(await rows()).toEqual({ sessions: 5, rules: 2 });
+        expect((await model('SessionReplacement').findById(attempt.flowId)).state).toBe(
+          'recovered',
+        );
+        negative(await recover(attempt, {}, 1));
+        expect(await rows()).toEqual({ sessions: 5, rules: 2 });
+      } finally {
+        spy.mockRestore();
+        auditSpy.mockRestore();
+        if (kind === 'clock')
+          await fence.updateOne(
+            { _id: SESSION_LIMIT_APPLICATION },
+            { $set: { serverNow: saved.serverNow } },
+          );
+      }
+    },
+  );
+
+  it('redacts recovery proof and verifier from audit, negative responses and document serialization', async () => {
+    const attempt = await recoverableAttempt();
+    expect((await confirmAttempt(attempt)).status).toBe(200);
+    const denied = await recover(attempt, { password: 'wrong' });
+    negative(denied);
+    expect((await recover(attempt)).status).toBe(200);
+    const stored = await model('SessionReplacement')
+      .findById(attempt.flowId)
+      .select('+passwordProof +secretHash +recoveryChallenge');
+    expect(stored.recoveryChallenge).toBe(attempt.challenge);
+    expect(JSON.stringify(stored)).not.toMatch(/passwordProof|secretHash|recoveryChallenge/);
+    const dump =
+      JSON.stringify(await model('SecurityAuditRecord').find().lean()) +
+      JSON.stringify(await model('SessionRevocation').find().lean()) +
+      JSON.stringify(denied.body);
+    for (const secret of [
+      attempt.verifier,
+      attempt.challenge,
+      attempt.token,
+      password,
+      stored.passwordProof,
+      stored.secretHash,
+    ])
+      expect(dump).not.toContain(secret);
   });
 });

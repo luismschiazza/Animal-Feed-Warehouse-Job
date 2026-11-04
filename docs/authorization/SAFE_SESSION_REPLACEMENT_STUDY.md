@@ -1,5 +1,7 @@
 # #18 — Substituição explícita de sessões (proposta implementada para revisão)
 
+> Extensão posterior à revisão de `98818e4`: [recuperação com nova autenticação e prova privada por tentativa](SESSION_REPLACEMENT_RECOVERY_STUDY.md). Os resultados 280/128 abaixo são históricos da entrega original; a extensão tem testes/CI próprios. Não reenviamos tokens armazenados nem reutilizamos o ticket consumido.
+
 ## Autorização e base
 
 Execução autorizada pelo proprietário: implementar/testar com banco descartável e preparar PR para revisão. **Não fazer merge, deploy ou encerrar #18.** Base conferida na main remota após PR #27: `e285965985bd5ab1f8d45227ada3d654a7995caa`. Branch isolada `feat/issue-18-safe-session-replacement`, em `D:/programacao/projetos/Animal-Feed-Warehouse-issue-18`. Evidências novas em `D:/programacao/documentos/issue-18-substituicao-sessoes`. Não reutilizar/reescrever relatórios selados da #27. A exceção temporária S1 e o acompanhamento #28 não são correção upstream nem autorização operacional.
@@ -29,7 +31,7 @@ Todas as mutações do fluxo usam `SessionSerializationService.run`, replica set
 
 ### Falhas e limites deliberados
 
-Falha antes do commit aborta consumo/regra/nova sessão/auditoria de sucesso; sessões antigas permanecem. Resultado de commit incerto, perda da resposta, falha de assinatura ou de auditoria pós-commit **não autoriza devolver credenciais por suposição nem reviver sessão revogada**. Após commit confirmado, efeitos podem existir mesmo sem resposta; ticket é de uso único, não um mecanismo de recuperação/reemissão de segredos. Recuperar por novo login/gestão, não repetir consumo ou gravar tokens em claro.
+Falha antes do commit aborta consumo/regra/nova sessão/auditoria de sucesso; sessões antigas permanecem. Resultado de commit incerto, perda da resposta, falha de assinatura ou de auditoria pós-commit **não autoriza devolver credenciais por suposição nem reviver sessão revogada**. Após commit confirmado, efeitos podem existir mesmo sem resposta; ticket é de uso único, não um mecanismo de recuperação/reemissão de segredos. Na versão original, recuperar por novo login/gestão, não repetir consumo ou gravar tokens em claro. A extensão posterior oferece `recover` com senha atual e verifier S256 vinculado antes de start, invalidando somente o resultado anterior da tentativa e criando outra família em uma transação, sem cache de credenciais; prazo e fallback no estudo vinculado acima.
 
 A prova de autorização tem os limites de snapshot da fundação: não cancela operação já autorizada se uma conta/vínculo mudar depois daquele ponto. Revalidação após commit reforça negação de credenciais. Fence global mantém risco de contenção intertenant; endpoints temporários também têm throttling, sem afirmar rate limit distribuído/SLO (#20/#14). Sem HA/rollout/PKI/NTP/backups certificados.
 
@@ -79,7 +81,7 @@ Sem dotenv, fallback MONGO_URL, seed, conta, ticket pré-criado ou reset de sequ
 
 Runtime: find/insert/update/listIndexes **somente** em session_replacement_challenges; sem remove/createIndex/createCollection/drop/collMod. TTL atua pelo servidor. Auth sessions mantêm seus poderes anteriores de CAS; coordenador find/update/listIndexes; journals seguem find/insert/listIndexes, sem TTL/update/delete. Leitura de usuário/organização/vínculo para autenticação não ganha permissão de alteração. Não conceder readWrite/dbOwner/root ou roles aditivas que anulem isso.
 
-Apenas um fluxo pendente por dono/tenant/aplicação: se a resposta do start se perder, não recuperar/expor o segredo do banco; aguardar 2 minutos ou cancelar com o token já recebido. Em excesso após redução, negar uma seleção insuficiente sem encerrar múltiplas sessões. Em resposta perdida pós-commit, consultar/gerir por sessão já autorizada ou novo login; não repetir tickets consumidos nem reemitir segredos por suposição. Sem UI/cliente single-flight/distribuição de rate limit nesta entrega; integração de cliente deve oferecer seleção e confirmação visíveis, escapar device e nunca incluir tokens em URLs/logs de body/resposta/proxy/APM.
+Apenas um fluxo pendente por dono/tenant/aplicação: se a resposta do start se perder, não recuperar/expor o segredo do banco; aguardar 2 minutos ou cancelar com o token já recebido. Em excesso após redução, negar uma seleção insuficiente sem encerrar múltiplas sessões. Em resposta perdida pós-commit, clientes que habilitaram `recoveryChallenge` podem usar a recuperação de uso único descrita no estudo posterior, ainda nos dois minutos originais. Sem prova, após expiração ou após consumir recuperação, consultar/gerir por sessão já autorizada ou novo login/fluxo explícito; não repetir tickets consumidos nem reemitir segredos por suposição. Sem UI/cliente single-flight/distribuição de rate limit nesta entrega; integração de cliente deve oferecer seleção e confirmação visíveis, escapar device e nunca incluir tokens em URLs/logs de body/resposta/proxy/APM.
 
 ## Resultados locais verificados em 04/11/2026 (na branch)
 

@@ -21,7 +21,7 @@
 
 ## Em andamento / Em revisão
 
-- [ ] [#18 Substituição segura de sessões](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/18) — implementação proposta na branch `feat/issue-18-safe-session-replacement`, baseada na main e285965 após PR #27. 280 unitários, 128 HTTP/MongoDB (31 novos), 13 ABAC, 4 E2E e smokes AppModule/ACL/CLI locais aprovados. Autorização temporária restrita, seleção explícita e transação #17; sem exclusão automática da mais antiga. PR/CI remoto próprios para revisão, sem merge/deploy/encerramento autorizados. [Estudo e limitações](../authorization/SAFE_SESSION_REPLACEMENT_STUDY.md).
+- [ ] [#18 Substituição segura de sessões](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/18) — implementação proposta na branch `feat/issue-18-safe-session-replacement`, baseada na main e285965 após PR #27. 280 unitários, 128 HTTP/MongoDB (31 novos), 13 ABAC, 4 E2E e smokes AppModule/ACL/CLI locais aprovados. Autorização temporária restrita, seleção explícita e transação #17; sem exclusão automática da mais antiga. PR #29 aberta para revisão, sem merge/deploy/encerramento autorizados. Extensão de resposta perdida: senha atual + verifier privado S256, uma substituição controlada da família criada, sem cache de tokens nem extensão do prazo; 283 unitários/160 HTTP-MongoDB locais, testes negativos/concorrência/falhas e ACL/CLI autenticados aprovados. Novo head exige CI próprio; o verde histórico de 98818e4 não aprova a extensão. [Estudo original](../authorization/SAFE_SESSION_REPLACEMENT_STUDY.md) e [fontes/desenho/recuperação](../authorization/SESSION_REPLACEMENT_RECOVERY_STUDY.md).
 
 ## Concluído
 

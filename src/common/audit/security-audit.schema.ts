@@ -9,6 +9,7 @@ export enum AuditEvent {
   REPLACEMENT_SELECTION = 'session_replacement_selection',
   REPLACEMENT_CANCEL = 'session_replacement_cancel',
   REPLACEMENT_CONFIRM = 'session_replacement_confirm',
+  REPLACEMENT_RECOVER = 'session_replacement_recover',
   SESSION_LIMIT_CONFIGURATION = 'session_limit_configuration',
   LOGIN = 'login',
   REFRESH = 'refresh',

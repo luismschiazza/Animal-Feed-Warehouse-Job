@@ -42,6 +42,7 @@ const publicAllowlist = new Set([
   'SessionReplacementController.list',
   'SessionReplacementController.confirm',
   'SessionReplacementController.cancel',
+  'SessionReplacementController.recover',
   'UsersController.create',
 ]);
 

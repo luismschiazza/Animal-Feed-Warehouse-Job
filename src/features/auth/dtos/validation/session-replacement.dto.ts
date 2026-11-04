@@ -1,4 +1,21 @@
-import { IsMongoId, IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import { IsMongoId, IsOptional, IsString, IsUUID, Length, Matches } from 'class-validator';
+import { LoginRequestDto } from './login-request.dto';
+
+export class StartSessionReplacementDto extends LoginRequestDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{43}$/)
+  recoveryChallenge?: string;
+}
+export class RecoverSessionReplacementDto extends LoginRequestDto {
+  @IsMongoId()
+  organizationId: string;
+  @IsUUID('4')
+  flowId: string;
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{43}$/)
+  recoveryVerifier: string;
+}
 
 export class SessionReplacementDto {
   @IsString()

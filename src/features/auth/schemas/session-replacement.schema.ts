@@ -16,8 +16,16 @@ export class SessionReplacement {
   secretHash: string;
   @Prop({ required: true, select: false, match: /^[a-f0-9]{64}$/, immutable: true })
   passwordProof: string;
-  @Prop({ type: String, required: true, enum: ['pending', 'consumed', 'cancelled', 'expired'] })
-  state: 'pending' | 'consumed' | 'cancelled' | 'expired';
+  @Prop({ select: false, immutable: true, match: /^[A-Za-z0-9_-]{43}$/ })
+  recoveryChallenge?: string;
+  @Prop({ type: String }) admittedSessionId?: string;
+  @Prop({ type: String }) recoveredSessionId?: string;
+  @Prop({
+    type: String,
+    required: true,
+    enum: ['pending', 'consumed', 'cancelled', 'expired', 'recovered'],
+  })
+  state: 'pending' | 'consumed' | 'cancelled' | 'expired' | 'recovered';
   @Prop({ required: true, immutable: true }) createdAt: Date;
   @Prop({ required: true, immutable: true }) expiresAt: Date;
   @Prop({ maxlength: 128, immutable: true }) ip?: string;
@@ -33,6 +41,7 @@ SessionReplacementSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 const redact = (_doc: unknown, ret: Partial<SessionReplacement>) => {
   delete ret.secretHash;
   delete ret.passwordProof;
+  delete ret.recoveryChallenge;
   return ret;
 };
 SessionReplacementSchema.set('toJSON', { versionKey: false, transform: redact });

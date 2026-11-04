@@ -18,7 +18,9 @@ import {
   SessionReplacement,
   verifyReplacementIndexes,
 } from '../schemas/session-replacement.schema';
+import { RevocationAction } from '../schemas/session-revocation.schema';
 import { generateRefreshToken, isSessionId } from '../tokens/refresh-token';
+import { isRecoveryChallenge, recoveryChallenge } from '../tokens/session-replacement-recovery';
 import {
   REPLACEMENT_TTL_MS,
   generateReplacementToken,
@@ -138,10 +140,17 @@ export class SessionReplacementService {
     return { ticket, identity: { ...identity, replacementFlowId: ticket._id }, parsed };
   }
 
-  async start(user: AuthenticatedUser, organizationId?: string, metadata: SessionMetadata = {}) {
+  async start(
+    user: AuthenticatedUser,
+    organizationId?: string,
+    metadata: SessionMetadata = {},
+    challenge?: string,
+  ) {
     let actor: AuditActor;
     try {
       const proof = this.auth.replacementLoginProof(user);
+      if (challenge !== undefined && !isRecoveryChallenge(challenge))
+        throw new BadRequestException('Invalid recovery challenge');
       if (typeof organizationId !== 'string' || !/^[a-f0-9]{24}$/i.test(organizationId))
         throw new BadRequestException('Replacement requires an explicit organization context');
       await this.ready();
@@ -190,6 +199,7 @@ export class SessionReplacementService {
               membershipId: new Types.ObjectId(identity.membershipId),
               secretHash: token.secretHash,
               passwordProof: proof,
+              recoveryChallenge: challenge,
               state: 'pending',
               createdAt: now,
               expiresAt,
@@ -211,6 +221,7 @@ export class SessionReplacementService {
           replacement_required: true,
           replacement_token: token.token,
           expires_at: expiresAt,
+          ...(challenge ? { recovery: { flow_id: token.id, expires_at: expiresAt } } : {}),
         };
       });
     } catch (error) {
@@ -326,6 +337,172 @@ export class SessionReplacementService {
     }
   }
 
+  // A fresh password AND a private per-attempt verifier are mandatory. This is
+  // one controlled replacement, never retrieval/retransmission of stored credentials.
+  async recover(
+    user: AuthenticatedUser,
+    organizationId: string,
+    flowId: unknown,
+    verifier: unknown,
+    metadata: SessionMetadata = {},
+  ) {
+    let actor: AuditActor;
+    try {
+      const proof = this.auth.replacementLoginProof(user);
+      const challenge = recoveryChallenge(verifier);
+      if (
+        !isSessionId(flowId) ||
+        !challenge ||
+        typeof organizationId !== 'string' ||
+        !/^[a-f0-9]{24}$/i.test(organizationId)
+      )
+        throw this.invalid();
+      await this.ready();
+      const filter = {
+        _id: flowId,
+        applicationId: SESSION_LIMIT_APPLICATION,
+        userId: new Types.ObjectId(user.id),
+        organizationId: new Types.ObjectId(organizationId),
+        recoveryChallenge: challenge,
+        state: { $in: ['pending', 'consumed'] },
+      };
+      // Read-only rejection of garbage/replay before the global mutation queue.
+      // Like preflight(), this does not authorize anything: repeat inside run().
+      if (
+        !(await this.tickets
+          .exists({
+            ...filter,
+            $expr: { $and: [{ $gt: ['$expiresAt', '$$NOW'] }, { $lte: ['$createdAt', '$$NOW'] }] },
+          })
+          .read('primary')
+          .setOptions({ maxTimeMS: 5_000, timeoutMS: 10_000 })
+          .exec())
+      )
+        throw this.invalid();
+      const credential = generateRefreshToken();
+      const receipt = await this.serialization.run(async (session, now, sequence) => {
+        const ticket = await this.tickets
+          .findOne({
+            ...filter,
+            expiresAt: { $gt: now },
+            createdAt: { $lte: now },
+          })
+          .select('+passwordProof')
+          .session(session)
+          .lean()
+          .exec();
+        if (
+          !ticket ||
+          ticket.passwordProof !== proof ||
+          !(ticket.createdAt instanceof Date) ||
+          !(ticket.expiresAt instanceof Date) ||
+          ticket.expiresAt.getTime() - ticket.createdAt.getTime() !== REPLACEMENT_TTL_MS
+        )
+          throw this.invalid();
+        const identity = await this.auth.requireReplacementIdentity(
+          user.id,
+          organizationId,
+          proof,
+          ticket.membershipId.toString(),
+          session,
+        );
+        actor = { ...identity, replacementFlowId: ticket._id };
+        if (ticket.state === 'pending')
+          throw new ConflictException(
+            'Replacement not committed; retry within the original expiry',
+          );
+        if (!isSessionId(ticket.admittedSessionId)) throw this.invalid();
+        const targets = await this.sessions
+          .aggregate<AuthSession>([
+            ...this.eligible(this.scope(ticket), now),
+            { $match: { sessionId: ticket.admittedSessionId, createdAt: { $type: 'date' } } },
+            { $limit: 1 },
+            { $project: { _id: 0, sessionId: 1, userId: 1, organizationId: 1, expiresAt: 1 } },
+          ])
+          .session(session)
+          .exec();
+        if (targets.length !== 1 || !(targets[0].expiresAt instanceof Date)) throw this.invalid();
+        const policy = await readOrganizationSessionLimit(this.revisions, organizationId, session);
+        if ((await this.count(this.scope(ticket), now, policy.limit + 1, session)) > policy.limit)
+          throw new ConflictException('Recovery cannot resolve the current session limit');
+        const consumed = await this.tickets
+          .updateOne(
+            { ...filter, state: 'consumed', admittedSessionId: ticket.admittedSessionId },
+            { $set: { state: 'recovered', recoveredSessionId: credential.sessionId } },
+            { session },
+          )
+          .exec();
+        if (consumed.modifiedCount !== 1) throw this.invalid();
+        const resultingActor = { ...actor, sessionId: credential.sessionId };
+        await this.revocations.replaceInTransaction(
+          targets[0],
+          resultingActor,
+          session,
+          now,
+          RevocationAction.RECOVER_REPLACEMENT,
+        );
+        if ((await this.count(this.scope(ticket), now, policy.limit, session)) >= policy.limit)
+          throw new ConflictException('Session limit reached');
+        await this.sessions.create(
+          [
+            {
+              ...this.scope(ticket),
+              sessionId: credential.sessionId,
+              currentTokenId: credential.tokenId,
+              currentTokenHash: credential.tokenHash,
+              createdAt: now,
+              lastUsedAt: now,
+              expiresAt: targets[0].expiresAt,
+              admissionVersion: policy.version,
+              admissionSequence: sequence,
+              ip: metadata.ip?.slice(0, 128),
+              userAgent: metadata.userAgent?.slice(0, 512),
+            },
+          ],
+          { session },
+        );
+        await this.audit.record(
+          AuditEvent.SESSION_ADMISSION,
+          'allowed',
+          'service',
+          resultingActor,
+          undefined,
+          session,
+        );
+        await this.audit.record(
+          AuditEvent.REPLACEMENT_RECOVER,
+          'allowed',
+          'service',
+          resultingActor,
+          undefined,
+          session,
+        );
+        return {
+          userId: identity.id,
+          organizationId: identity.organizationId,
+          membershipId: identity.membershipId,
+          passwordProof: proof,
+        };
+      });
+      return await this.auth.completeReplacement(
+        receipt.userId,
+        receipt.organizationId,
+        receipt.membershipId,
+        receipt.passwordProof,
+        credential.sessionId,
+        credential.refreshToken,
+      );
+    } catch (error) {
+      await this.audit.record(
+        AuditEvent.REPLACEMENT_RECOVER,
+        this.audit.result(error),
+        'service',
+        actor,
+      );
+      throw error;
+    }
+  }
+
   async confirm(token: unknown, selectedSessionId: unknown) {
     let actor: AuditActor;
     try {
@@ -358,7 +535,7 @@ export class SessionReplacementService {
         const result = await this.tickets
           .updateOne(
             { _id: ticket._id, secretHash: parsed.secretHash, state: 'pending' },
-            { $set: { state: 'consumed' } },
+            { $set: { state: 'consumed', admittedSessionId: credential.sessionId } },
             { session },
           )
           .exec();

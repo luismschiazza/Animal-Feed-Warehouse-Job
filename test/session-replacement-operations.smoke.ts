@@ -6,7 +6,7 @@ import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { Connection } from 'mongoose';
 import { execFile } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import * as request from 'supertest';
@@ -186,7 +186,13 @@ async function main() {
       old.push(r.body);
     }
     check((await http().post('/api/auth/login').send(credentials)).status === 409);
-    const begun = await http().post('/api/auth/session-replacement/start').send(credentials);
+    const recoveryVerifier = randomBytes(32).toString('base64url');
+    const recoveryChallenge = createHash('sha256')
+      .update(recoveryVerifier, 'ascii')
+      .digest('base64url');
+    const begun = await http()
+      .post('/api/auth/session-replacement/start')
+      .send({ ...credentials, recoveryChallenge });
     check(begun.status === 201);
     const replacementToken = begun.body.replacement_token;
     check(
@@ -203,6 +209,40 @@ async function main() {
     );
     check(
       (await admin.models.SessionRevocation.countDocuments({ action: 'replace_session' })) === 1,
+    );
+    phase = 'restricted-runtime-recovery';
+    const recovered = await http()
+      .post('/api/auth/session-replacement/recover')
+      .send({
+        ...credentials,
+        flowId: begun.body.recovery.flow_id,
+        recoveryVerifier,
+      });
+    check(recovered.status === 200 && !!recovered.body.access_token);
+    check(recovered.body.session_id !== confirmed.body.session_id);
+    check(
+      (await http().get('/api/auth/sessions').auth(confirmed.body.access_token, { type: 'bearer' }))
+        .status === 401,
+    );
+    check(
+      (await http().post('/api/auth/refresh').send({ refreshToken: confirmed.body.refresh_token }))
+        .status === 401,
+    );
+    const live = await http()
+      .get('/api/auth/sessions')
+      .auth(recovered.body.access_token, { type: 'bearer' });
+    check(live.status === 200 && live.body.items.length === 3);
+    check(
+      (await admin.models.SessionRevocation.countDocuments({
+        action: 'recover_session_replacement',
+      })) === 1,
+    );
+    check(
+      (
+        await http()
+          .post('/api/auth/session-replacement/recover')
+          .send({ ...credentials, flowId: begun.body.recovery.flow_id, recoveryVerifier })
+      ).status === 401,
     );
     phase = 'runtime-negative-acl';
     for (const collection of [
@@ -226,7 +266,7 @@ async function main() {
       writer.db.command({ collMod: 'session_replacement_challenges', validator: {} }),
     );
     console.info(
-      'PASS replacement authenticated HTTP/transaction/least-privilege ACL and source+compiled operator CLI; no runtime DDL or journal update/delete.',
+      'PASS replacement and one-shot recovery authenticated HTTP/transaction/least-privilege ACL and source+compiled operator CLI; no runtime DDL or journal update/delete.',
     );
   } finally {
     await app?.close();

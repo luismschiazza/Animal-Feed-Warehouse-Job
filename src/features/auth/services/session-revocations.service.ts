@@ -159,8 +159,12 @@ export class SessionRevocationsService implements OnModuleInit {
     actor: RevocationActor,
     session: ClientSession,
     now: Date,
+    action:
+      | RevocationAction.REPLACE
+      | RevocationAction.RECOVER_REPLACEMENT = RevocationAction.REPLACE,
   ) {
     if (
+      ![RevocationAction.REPLACE, RevocationAction.RECOVER_REPLACEMENT].includes(action) ||
       !session.inTransaction() ||
       !isSessionId(target.sessionId) ||
       !isSessionId(actor.sessionId) ||
@@ -174,7 +178,7 @@ export class SessionRevocationsService implements OnModuleInit {
       [
         {
           scope: RevocationScope.SESSION,
-          action: RevocationAction.REPLACE,
+          action,
           targetSessionId: target.sessionId,
           targetUserId: target.userId,
           organizationId: target.organizationId,

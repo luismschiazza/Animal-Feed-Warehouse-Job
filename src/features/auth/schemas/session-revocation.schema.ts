@@ -16,6 +16,7 @@ export enum RevocationAction {
   REPLAY = 'refresh_reuse',
   LIMIT = 'rotation_limit',
   REPLACE = 'replace_session',
+  RECOVER_REPLACEMENT = 'recover_session_replacement',
 }
 
 // Append-only authoritative rules AND audit. Deliberately NO TTL or delete API.
@@ -57,6 +58,7 @@ SessionRevocationSchema.pre('validate', function () {
       RevocationAction.REPLAY,
       RevocationAction.LIMIT,
       RevocationAction.REPLACE,
+      RevocationAction.RECOVER_REPLACEMENT,
     ],
     [RevocationScope.USER]: [RevocationAction.OTHERS, RevocationAction.ALL],
     [RevocationScope.ORGANIZATION]: [RevocationAction.ADMIN_ALL],
@@ -94,6 +96,7 @@ SessionRevocationSchema.pre('validate', function () {
       RevocationAction.LOGOUT,
       RevocationAction.REVOKE,
       RevocationAction.REPLACE,
+      RevocationAction.RECOVER_REPLACEMENT,
       RevocationAction.ALL,
       RevocationAction.OTHERS,
     ].includes(this.action) &&
@@ -101,7 +104,7 @@ SessionRevocationSchema.pre('validate', function () {
   )
     this.invalidate('targetUserId', 'Owned account required');
   if (
-    this.action === RevocationAction.REPLACE &&
+    [RevocationAction.REPLACE, RevocationAction.RECOVER_REPLACEMENT].includes(this.action) &&
     (!this.organizationId ||
       !this.actorOrganizationId ||
       this.organizationId.toString() !== this.actorOrganizationId.toString() ||
