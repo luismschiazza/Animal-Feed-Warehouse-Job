@@ -7,6 +7,7 @@ import * as bcrypt from 'bcryptjs';
 import { Connection } from 'mongoose';
 import { execFile } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import * as request from 'supertest';
 import { AuditContext } from '@/common/audit/audit-context.service';
@@ -16,6 +17,7 @@ import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit
 import { verifyReplacementIndexes } from '@/features/auth/schemas/session-replacement.schema';
 
 const execute = promisify(execFile);
+let phase = 'setup';
 const check = (condition: unknown) => {
   if (!condition) throw new Error('Replacement operations assertion failed');
 };
@@ -57,6 +59,18 @@ async function main() {
   const admin = operator.get<Connection>(getConnectionToken());
   let app: INestApplication;
   try {
+    // This smoke runs in its OWN fresh development container; previous jobs' dist is not shared.
+    // Always compile this checkout, never accidentally certify a stale/local prebuilt CLI.
+    phase = 'compile-current-checkout';
+    const preexistingCompiledCli = existsSync(
+      'dist/commands/initialize-session-replacement.script.js',
+    );
+    await execute(process.execPath, ['scripts/build-with-tsc.cjs'], { timeout: 60_000 });
+    check(existsSync('dist/commands/initialize-session-replacement.script.js'));
+    console.info(
+      `PASS current-checkout CLI build; preexisting_compiled_cli=${preexistingCompiledCli}`,
+    );
+    phase = 'operator-storage';
     for (const model of Object.values(admin.models)) {
       await model.createCollection();
       await model.createIndexes();
@@ -80,8 +94,10 @@ async function main() {
         'src/commands/initialize-session-replacement.script.ts',
       ],
       ['dist/commands/initialize-session-replacement.script.js'],
-    ])
+    ]) {
+      phase = args[0].startsWith('dist/') ? 'compiled-operator-cli' : 'source-operator-cli';
       await execute(process.execPath, args, { env, timeout: 60_000 });
+    }
     check((await admin.models.SessionReplacement.countDocuments()) === 0);
     check((await admin.models.AuthSession.countDocuments()) === 0);
     check((await admin.models.User.countDocuments()) === 0);
@@ -97,6 +113,7 @@ async function main() {
     } catch (error) {
       check((error as { code?: number }).code === 1);
     }
+    phase = 'restricted-runtime-http';
     const password = randomBytes(24).toString('hex');
     const uid = (
       await admin.models.User.create({
@@ -187,6 +204,7 @@ async function main() {
     check(
       (await admin.models.SessionRevocation.countDocuments({ action: 'replace_session' })) === 1,
     );
+    phase = 'runtime-negative-acl';
     for (const collection of [
       'security_audit_events',
       'auth_session_revocations',
@@ -221,6 +239,7 @@ async function main() {
   }
 }
 void main().catch(() => {
-  console.error('FAIL isolated session replacement operations smoke');
+  // Code-owned phase only: do not echo child errors/URIs/credentials into logs.
+  console.error(`FAIL isolated session replacement operations smoke: ${phase}`);
   process.exitCode = 1;
 });
