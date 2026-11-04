@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, PipelineStage, Types } from 'mongoose';
+import { ClientSession, Model, PipelineStage, Types } from 'mongoose';
 import { AuditContext } from '@/common/audit/audit-context.service';
 import { verifyAuditIndexes } from '@/common/audit/audit-indexes';
 import { AuthSession } from '../schemas/auth-session.schema';
@@ -152,6 +152,44 @@ export class SessionRevocationsService implements OnModuleInit {
       actor,
     );
   }
+  // Internal #18 participant: do NOT open a nested transaction or call single().
+  // The target and the resulting actor session are validated/created by the caller in this transaction.
+  async replaceInTransaction(
+    target: AuthSession,
+    actor: RevocationActor,
+    session: ClientSession,
+    now: Date,
+  ) {
+    if (
+      !session.inTransaction() ||
+      !isSessionId(target.sessionId) ||
+      !isSessionId(actor.sessionId) ||
+      actor.sessionId === target.sessionId ||
+      target.userId.toString() !== actor.id ||
+      !target.organizationId ||
+      target.organizationId.toString() !== actor.organizationId
+    )
+      throw new UnauthorizedException('Invalid replacement context');
+    await this.records.create(
+      [
+        {
+          scope: RevocationScope.SESSION,
+          action: RevocationAction.REPLACE,
+          targetSessionId: target.sessionId,
+          targetUserId: target.userId,
+          organizationId: target.organizationId,
+          actorUserId: this.oid(actor.id),
+          actorSessionId: actor.sessionId,
+          actorOrganizationId: this.oid(actor.organizationId),
+          initiator: 'user',
+          occurredAt: now,
+          requestId: this.context.get().requestId,
+        },
+      ],
+      { session },
+    );
+  }
+
   async ownAll(actor: RevocationActor, othersOnly: boolean) {
     return this.append(
       {

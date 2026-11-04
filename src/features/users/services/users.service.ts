@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcryptjs';
-import { Model } from 'mongoose';
+import { ClientSession, Model } from 'mongoose';
 import { PolicyResource, PolicySubject } from '@/common/authorization/policy.types';
 import { ScopedResourcesService } from '@/common/authorization/scoped-resources.service';
 import { AccountStatus } from '@/common/enums/account-status.enum';
@@ -64,6 +64,13 @@ export class UsersService {
 
   async findOneById(id: string): Promise<User | null> {
     return this.userModel.findById(id).select('+roles').exec();
+  }
+
+  // Internal authentication only; never expose this document through a controller.
+  async findOneByIdWithPassword(id: string, session?: ClientSession): Promise<User | null> {
+    const query = this.userModel.findById(id).select('+password +roles');
+    if (session) query.session(session);
+    return query.exec();
   }
 
   async update(_id: string, _updateUserDto: UpdateUserDto): Promise<User | null> {

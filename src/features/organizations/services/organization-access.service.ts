@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { Role } from '@/common/enums/role.enum';
 import {
   MembershipStatus,
@@ -28,26 +28,29 @@ export class OrganizationAccessService {
   async requireActiveMembership(
     userId: string,
     organizationId: string,
+    session?: ClientSession,
   ): Promise<OrganizationAccess> {
     if (!this.isObjectId(userId) || !this.isObjectId(organizationId)) throw this.denied();
     const owner = new Types.ObjectId(userId);
     const organization = new Types.ObjectId(organizationId);
-    const activeOrganization = await this.organizations
+    const organizationQuery = this.organizations
       .findOne({
         _id: organization,
         status: OrganizationStatus.ACTIVE,
       })
-      .select('_id')
-      .exec();
+      .select('_id');
+    if (session) organizationQuery.session(session);
+    const activeOrganization = await organizationQuery.exec();
     if (!activeOrganization) throw this.denied();
-    const membership = await this.memberships
+    const membershipQuery = this.memberships
       .findOne({
         organizationId: organization,
         userId: owner,
         status: MembershipStatus.ACTIVE,
       })
-      .select('_id organizationId userId roles')
-      .exec();
+      .select('_id organizationId userId roles');
+    if (session) membershipQuery.session(session);
+    const membership = await membershipQuery.exec();
     // Validate roles too: schema validators do not protect against old/raw database writes.
     if (
       !membership ||
