@@ -64,7 +64,8 @@ function reachableProduction(lock) {
   return result;
 }
 
-function evaluate({ production, full, exits, lock }) {
+function evaluate({ production, full, exits, lock, official }) {
+  if (official !== undefined) return require('./audit-discrepancy.cjs').evaluate({ production, full, exits, lock, official });
   requireThat(record(exits) && Number.isInteger(exits.production) && Number.isInteger(exits.full), 'missing-exit-codes');
   requireThat(exits.production === 0, 'production-audit-exit');
   requireThat(report(production) === 0, 'production-vulnerability');
@@ -115,9 +116,9 @@ module.exports = { evaluate, PACKAGES };
 if (require.main === module) {
   try {
     const files = process.argv.slice(2);
-    requireThat(files.length === 4, 'usage-production-full-exits-lock');
-    const [production, full, exits, lock] = files.map(file => JSON.parse(fs.readFileSync(file, 'utf8')));
-    console.log(JSON.stringify(evaluate({ production, full, exits, lock }), null, 2));
+    requireThat(files.length === 4 || files.length === 5, 'usage-production-full-exits-lock-optional-official');
+    const [production, full, exits, lock, official] = files.map(file => JSON.parse(fs.readFileSync(file, 'utf8')));
+    console.log(JSON.stringify(evaluate({ production, full, exits, lock, official }), null, 2));
   } catch (error) {
     // Never echo registry response/credentials into workflow commands.
     console.error(error.message?.startsWith('AUDIT_POLICY_REJECTED:') ? error.message : 'AUDIT_POLICY_REJECTED: input-read-or-parse-error');

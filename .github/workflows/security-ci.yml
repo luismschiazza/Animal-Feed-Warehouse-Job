@@ -30,10 +30,16 @@ jobs:
           printf 'pr_head_sha=%s\nbase_sha=%s\ntested_sha=%s\nstarted_utc=%s\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$(git rev-parse HEAD)" "$(date -u +%FT%TZ)" > "$CI_REPORTS/identity.txt"
           # RUN npm ci is in this Docker target. No node_modules or remote build cache is reused.
           docker build --no-cache --progress=plain --target development -t afw-ci-development . > "$CI_REPORTS/build.log" 2>&1
-      - name: Test audit policy (positive and fail-closed cases)
+      - name: Check npm tree and test audit policies (legacy, exact six-package scope and official-record transitions)
         run: |
-          docker run --rm --name "$CI_CLIENT" --network none afw-ci-development node --test scripts/ci/audit-policy.test.cjs > "$CI_REPORTS/audit-policy-tests.log" 2>&1
-      - name: Audit production and explicitly classify the reviewed development advisory
+          docker run --rm --name "$CI_CLIENT" --network none afw-ci-development npm ls --all --json > "$CI_REPORTS/npm-tree.json" 2> "$CI_REPORTS/npm-tree.stderr.log"
+          docker run --rm --name "$CI_CLIENT" --network none afw-ci-development sh -ec 'node --test scripts/ci/*.test.cjs' > "$CI_REPORTS/audit-policy-tests.log" 2>&1
+      - name: Capture current public CVE, NVD and GHSA records (no credentials)
+        run: |
+          # Only this producer has network access. Offline classification below stays network none.
+          # Match the runner UID to write a NEW public-source directory in reports, not application files.
+          docker run --rm --name "$CI_CLIENT" --user "$(id -u):$(id -g)" --mount "type=bind,source=$CI_REPORTS,target=/ci-reports" afw-ci-development node scripts/ci/audit-official-sources.cjs /ci-reports/official > "$CI_REPORTS/official-capture.log" 2>&1
+      - name: Audit production and explicitly classify the owner-approved temporary exact feed discrepancy
         run: |
           # Capture REAL audit statuses; only the reviewed classifier decides whether to continue.
           set +e
@@ -43,13 +49,13 @@ jobs:
           full_exit=$?
           set -e
           printf '{"production":%s,"full":%s}\n' "$production_exit" "$full_exit" > "$CI_REPORTS/audit-exits.json"
-          docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$CI_REPORTS,target=/ci-reports,readonly" afw-ci-development node scripts/ci/audit-policy.cjs /ci-reports/audit-production.json /ci-reports/audit-full.json /ci-reports/audit-exits.json package-lock.json > "$CI_REPORTS/audit-triage.json"
+          docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$CI_REPORTS,target=/ci-reports,readonly" afw-ci-development node scripts/ci/audit-policy.cjs /ci-reports/audit-production.json /ci-reports/audit-full.json /ci-reports/audit-exits.json package-lock.json /ci-reports/official/bundle.json > "$CI_REPORTS/audit-triage.json"
           cat "$CI_REPORTS/audit-exits.json" >> "$GITHUB_STEP_SUMMARY"
           cat "$CI_REPORTS/audit-triage.json" >> "$GITHUB_STEP_SUMMARY"
-          if grep -q 'known-development-advisory' "$CI_REPORTS/audit-triage.json"; then
-            echo '::warning title=Known development audit risk::GHSA-gcqx-w48m-w2h4 / CVE-2026-93753 remains development-only. Full audit exit 1 is retained; no production clearance or blanket exception.'
+          if grep -q 'reviewed-cve-rejected-feed-discrepancy' "$CI_REPORTS/audit-triage.json"; then
+            echo '::warning title=Exact development feed discrepancy::CVE-2026-93753 is REJECTED but GHSA-gcqx-w48m-w2h4 remains active. Six LOW / raw audit exit 1 retained. Temporary S1 explicitly approved by owner for this candidate, original expiry unchanged; no package fix, blanket exception, merge/deploy or production clearance.'
           fi
-      - name: Lint, TypeScript, build, unit tests, E2E and real asset packaging
+      - name: Lint, TypeScript, build, unit tests, E2E, Babel coverage and real asset packaging
         timeout-minutes: 10
         run: |
           docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$GITHUB_WORKSPACE/test,target=/usr/src/app/test,readonly" afw-ci-development sh -ec '
@@ -58,6 +64,7 @@ jobs:
             npm run build
             npm test -- --runInBand
             npm run test:e2e -- --runInBand
+            npm run test:cov -- --runInBand --coverageReporters=text-summary
             node test/runtime-packaging.smoke.cjs
           ' > "$CI_REPORTS/quality.log" 2>&1
       - name: Mandatory cleanup
@@ -69,7 +76,7 @@ jobs:
         if: always()
         run: &sanitize |
           python3 - <<'PY'
-          import os, pathlib, re, urllib.parse
+          import os, pathlib, re, urllib.parse, hashlib, json
           password = urllib.parse.urlsplit(os.environ.get('AUDIT_TEST_ADMIN_URL', '')).password
           root = pathlib.Path(os.environ['CI_REPORTS'])
           target = root / 'sanitized'
@@ -85,13 +92,31 @@ jobs:
               text = re.sub(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', '[REDACTED-JWT]', text)
               text = re.sub(r'(?i)("(?:password|pass|pwd|access_token|refresh_token|authorization|token)"\s*:\s*)"[^"\n]*"', r'\1"[REDACTED]"', text)
               (target / file.name).write_text(text)
+          # Label any sanitization explicitly; do not present transformed bytes as raw evidence.
+          hashes = []
+          for file in target.iterdir():
+              original = root / file.name
+              if file.is_file() and original.is_file():
+                  raw = hashlib.sha256(original.read_bytes()).hexdigest()
+                  sanitized = hashlib.sha256(file.read_bytes()).hexdigest()
+                  hashes.append({'file': file.name, 'originalSHA256': raw, 'artifactSHA256': sanitized, 'transformed': raw != sanitized})
+          (target / 'report-integrity.json').write_text(json.dumps(hashes, indent=2))
+          # Public-source captures use fixed HTTPS URLs without credentials. Preserve bytes/HTTP metadata.
+          sources = root / 'official'
+          if sources.is_dir() and not sources.is_symlink():
+              public = target / 'official'
+              public.mkdir(exist_ok=True)
+              allowed = {'bundle.json'} | {name + suffix for name in ('cve', 'nvd', 'ghsa') for suffix in ('.body', '.receipt.json', '.failure.json', '.partial-body')}
+              for file in sources.iterdir():
+                  if file.name in allowed and file.is_file() and not file.is_symlink():
+                      (public / file.name).write_bytes(file.read_bytes())
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, pinned commit
         if: always()
         with:
           name: quality-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.CI_REPORTS }}/sanitized/
-          retention-days: 3
+          retention-days: 30
           if-no-files-found: warn
 
   mongo-integration:
@@ -194,5 +219,5 @@ jobs:
         with:
           name: mongo-integration-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.CI_REPORTS }}/sanitized/
-          retention-days: 3
+          retention-days: 30
           if-no-files-found: warn
