@@ -5,6 +5,7 @@ import { DisciplineModelModule } from '@/features/disciplines/models/discipline-
 import { GradeModelModule } from '@/features/grades/models/grade-model.module';
 import { MeetingModelModule } from '@/features/meeting/models/meeting-model.module';
 import { OrganizationsModule } from '@/features/organizations/organizations.module';
+import { ProductModelModule } from '@/features/products/models/product-model.module';
 import { UserModelModule } from '@/features/users/models/user-model.module';
 import { PolicyEngine } from './policy-engine.service';
 import { ScopedResourcesService } from './scoped-resources.service';
@@ -19,6 +20,7 @@ import { ScopedResourcesService } from './scoped-resources.service';
     AttendanceModelModule,
     GradeModelModule,
     MeetingModelModule,
+    ProductModelModule,
   ],
   providers: [ScopedResourcesService, PolicyEngine],
   exports: [ScopedResourcesService],

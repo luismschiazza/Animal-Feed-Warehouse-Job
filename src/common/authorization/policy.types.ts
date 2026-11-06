@@ -13,6 +13,7 @@ export enum PolicyAction {
 }
 
 export enum PolicyResource {
+  PRODUCT = 'product',
   USER = 'user',
   AUDIT_EVENT = 'audit_event',
   OWN_AUDIT_EVENT = 'own_audit_event',

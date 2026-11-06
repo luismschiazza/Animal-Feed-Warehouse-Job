@@ -181,7 +181,7 @@ jobs:
       - name: Authenticated audit ACLs, transactions, writer retirement and read-only exporter
         timeout-minutes: 5
         run: |
-          docker run --rm --name "$CI_CLIENT" --network "container:$AUTH_NAME" --mount "type=bind,source=$GITHUB_WORKSPACE/test,target=/usr/src/app/test,readonly" -e AUDIT_TEST_ADMIN_URL afw-ci-development sh -ec 'npm run test:audit-operations; npm run test:session-replacement-operations' > "$CI_REPORTS/audit-acl.log" 2>&1
+          docker run --rm --name "$CI_CLIENT" --network "container:$AUTH_NAME" --mount "type=bind,source=$GITHUB_WORKSPACE/test,target=/usr/src/app/test,readonly" -e AUDIT_TEST_ADMIN_URL afw-ci-development sh -ec 'npm run test:audit-operations; npm run test:session-replacement-operations; npm run test:products-operations' > "$CI_REPORTS/audit-acl.log" 2>&1
       - name: Verified mutual TLS and negative cases
         timeout-minutes: 3
         env:
