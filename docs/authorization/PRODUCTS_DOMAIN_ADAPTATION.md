@@ -57,7 +57,7 @@ Antes da PR: unitários schema/DTO/policy, HTTP real MongoRS com login/sessões/
 
 S1/#28/overrides/dependências preservados: auditoria completa pode continuar6LOWdev/exit1, não declarar limpa/renovar. Cliente catálogo/UI e integração inventário/logística/financeiro permanecem pendentes; não é certificação de produção, fiscal/MAPA, nutrição ou performance. A cópia externa pré-código foi preservada; os resultados posteriores seguem abaixo.
 
-## Continuação e revisão — 2026-11-04
+## Continuação e revisão — 2026-11-06
 
 Branch existente `feat/products-store-domain`, base `a9667fd`. Patch e arquivos novos da sessão interrompida preservados em evidência externa antes de editar. Nenhum arquivo do módulo users foi alterado; generic CRUD escolar continua negado para PRODUCT. A revisão manteve arquitetura dedicada e a autorização compartilhada, corrigindo a classificação do conflito de SKU na auditoria: 409 agora registra resultado `denied`, não erro interno de infraestrutura.
 
@@ -77,6 +77,6 @@ Fontes oficiais reconsultadas antes das alterações: URLs MongoDB transactions/
 
 Ver comandos/ACL no README. Sem catálogo público CUSTOMER, UI, estoque/lotes/validade, impostos, integração comercial, restore, ETag ou idempotency key. Edição concorrente do mesmo campo é last-write-wins; arquivamento nunca é revertido por PATCH. Revalidação de identidade usa os serviços atuais fora da sessão de catálogo: não cancela retroativamente uma operação concorrente com revogação. Perda de resposta/commit incerto pode esconder um efeito confirmado; consultar estado antes de repetir uma intenção, sem promessa exactly-once. Falhas de auditoria bloqueiam escrita; registros de erro também podem falhar se o journal estiver indisponível.
 
-Dependências/lock/engines/overrides e escopo/prazo S1 inalterados. Auditorias locais reais: produção0/exit0, completa6LOWdev/exit1. S1 não é auditoria limpa e expira em2026-11-10T22:09:20.702Z, acompanhamento #28. PKI/TLS nativo Ubuntu depende do CI correspondente; testes locais não certificam produção, HA, backup, rollout ou desempenho.
+Dependências/lock/engines/overrides e escopo/prazo S1 inalterados. Auditorias locais reais: produção0/exit0, completa6LOWdev/exit1. S1 não é auditoria limpa e expira em2026-11-10T22:09:20.702Z, acompanhamento #28. O CI remoto inicial `42311614908`, head `5e1dd59`, passou nos dois jobs e em todos os passos, incluindo mTLS nativo Ubuntu (plaintext/CA não confiável recusados), novas ACLs de produto e os mesmos totais de testes. O merge virtual testado foi `7aac6f9`, base `a9667fd`. Esta atualização posterior é somente documentação; conferir também o CI do HEAD final da PR. Testes locais/remotos não certificam produção, HA, backup, rollout ou desempenho.
 
 **Estado: proposta para revisão, sem merge/deploy.** CI remoto e identidade final serão conferidos na PR. Evidências detalhadas/logs/exits fora do Git em `D:/programacao/documentos/products-domain-crud-review-20261104`; evidências da primeira sessão em `D:/programacao/documentos/products-domain-crud-pr`, preservadas.
