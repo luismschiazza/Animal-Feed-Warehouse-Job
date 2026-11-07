@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcryptjs';
 import { Model } from 'mongoose';
+import { rejectLegacySeed } from '@/commands/seed/services/seed.service';
 import { UserFactory } from '../factories/user.factory';
 import { User } from '../interfaces/user.interface';
 
@@ -15,6 +16,7 @@ export class UsersSeeder {
   ) {}
 
   async run(limit?: number): Promise<void> {
+    rejectLegacySeed();
     // Wildcard user
     const wildcardUserEmail = 'developer@example.com';
     const wildcardUserPassword = 'dev123';

@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
+export function rejectLegacySeed(): void {
+  throw new Error(
+    'Legacy demonstration seeds are disabled; use the guarded commercial demo command',
+  );
+}
+
 /** Historical school fixtures are not warehouse provisioning. Disabled in ALL environments. */
 @Injectable()
 export class SeedService {

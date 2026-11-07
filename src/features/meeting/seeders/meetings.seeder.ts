@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { rejectLegacySeed } from '@/commands/seed/services/seed.service';
 import { MeetingFactory } from '../factories/meeting.factory';
 import { Meeting } from '../interfaces/meeting.interface';
 
@@ -14,6 +15,7 @@ export class MeetingsSeeder {
   ) {}
 
   async run(limit = 20) {
+    rejectLegacySeed();
     const data = MeetingFactory.makeMany(limit);
     await this.meetingModel.insertMany(data);
     this.logger.log(`✔ Created ${limit} meetings.`);

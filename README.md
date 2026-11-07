@@ -217,7 +217,19 @@ npm run cli -- generate:jwt-secret
 node test/runtime-packaging.smoke.cjs
 ```
 
-> Seeds escolares legadas estão desabilitadas, inclusive no comando e no serviço. Não são provisionamento da loja. Consulte a [fase 2 da revisão emergencial](docs/authorization/EMERGENCY_PHASE2_VALIDATION.md) e a [triagem por CVE](docs/authorization/EMERGENCY_IMAGE_CVE_TRIAGE.md). Startup compilado e regressões reais foram validados; há CVEs residuais de imagem e nenhuma aprovação de produção. A imagem final da API executa Node diretamente, sem npm/corepack/yarn.
+### Demonstração comercial descartável (#31)
+
+Com Docker Linux local e as dependências de desenvolvimento instaladas, crie/popule explicitamente um ambiente **novo e próprio**, sem informar URI de banco:
+
+```sh
+npm run demo:create -- --name loja-demo
+npm run demo:status -- --name loja-demo
+npm run demo:start -- --name loja-demo
+```
+
+São 15 contas fictícias, duas organizações e seis produtos (sacos fechados e granel, sem saldo/conversão). Senhas aleatórias são entregues em arquivo local com acesso privado, nunca no terminal. O comando `seed --name loja-demo -m users|products|demo` continua disponível, agora interceptado antes do AppModule. Repetição valida sem sobrescrever; descarte exige conferir o ID completo. [Guia, credenciais, limites, falhas, comandos fonte/compilados e limpeza segura](docs/development/DEMO_SEEDS.md).
+
+> Seeds escolares legadas estão desabilitadas, inclusive no comando, no serviço e nos providers individuais. Não são provisionamento da loja. Consulte a [fase 2 da revisão emergencial](docs/authorization/EMERGENCY_PHASE2_VALIDATION.md) e a [triagem por CVE](docs/authorization/EMERGENCY_IMAGE_CVE_TRIAGE.md). Startup compilado e regressões reais foram validados; há CVEs residuais de imagem e nenhuma aprovação de produção. A imagem final da API executa Node diretamente, sem npm/corepack/yarn.
 
 ## Roadmap
 
