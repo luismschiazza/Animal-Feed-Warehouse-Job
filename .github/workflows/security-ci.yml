@@ -62,6 +62,7 @@ jobs:
             npm run lint
             npx --no-install tsc --noEmit --incremental false
             npm run build
+            npm run test:cli-safety
             npm run test:demo-safety
             npm test -- --runInBand
             npm run test:e2e -- --runInBand

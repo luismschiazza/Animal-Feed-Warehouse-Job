@@ -17,6 +17,7 @@
     "demo:start": "node scripts/demo.cjs start",
     "demo:destroy": "node scripts/demo.cjs destroy",
     "test:demo-safety": "node --test scripts/demo.test.cjs",
+    "test:cli-safety": "node --test test/cli-dispatch.smoke.cjs",
     "test:demo": "npm run build && ts-node -r tsconfig-paths/register test/demo-operations.smoke.ts",
     "audit:initialize": "ts-node -r tsconfig-paths/register src/commands/audit-initialize.script.ts",
     "audit:export": "ts-node -r tsconfig-paths/register src/commands/audit-export.script.ts",

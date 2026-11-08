@@ -62,7 +62,13 @@ npm run demo:create -- --name outra-loja --dry-run
 
 `-m`/`-l` continuam aceitos. Nesta primeira versão o dataset é fixo: `users=15`, `products=6`, `demo=21` (contas+produtos, não contagem de vínculos). Omita `--limit` ou informe o valor exato; valores diferentes, zero, negativos, excessivos e decimais falham, sem seed parcial aleatório. `demo:create --module users` prepara somente contas/organizações/vínculos; `seed --module products` exige essa base já comprovada. `demo` é o padrão e executa ambos. Os seletores escolares e de mail são recusados, não redirecionados silenciosamente. Os providers legados individuais também receberam uma recusa antes de acessar suas dependências.
 
-A interceptação de `seed` acontece **antes de importar AppModule**, tanto em fonte quanto compilado. Não lê `.env` nem usa `MONGO_URL`/credenciais SMTP herdadas como fallback. Os comandos administrativos antigos permanecem separados e não adquiriram as garantias desta ferramenta.
+O despacho da CLI é validado **sem importar AppModule**, tanto em fonte quanto compilado. Apenas `seed` e `generate:jwt-secret` são subcomandos reconhecidos; nomes são case-sensitive. `Seed`, comandos/flags desconhecidos, argumentos administrativos extras e prefixos inválidos falham sem bootstrap de aplicação/configuração/banco. O manager valida todos os argumentos de `seed` antes de qualquer conexão e não lê `.env` nem usa `MONGO_URL`/credenciais SMTP herdadas como fallback.
+
+`npm run cli -- --help`, `--help seed`, `help seed`, `seed --help` e a ajuda de `generate:jwt-secret` são locais: não carregam Nest/config/banco, não leem ou alteram `.env` e nunca executam o comando, mesmo com opções adicionais. Sem argumentos, a CLI mostra a ajuda. Comando desconhecido continua recusado mesmo com `--help`.
+
+`generate:jwt-secret [-f|--force]` preserva o provider administrativo existente, em um módulo mínimo sem banco/mail: atua somente na `.env` do diretório atual e mantém a necessidade de force explícito para substituir valor não vazio. Os demais comandos administrativos npm (`bootstrap:organization`, auditoria, inicializadores de produtos/sessões) continuam scripts separados, inalterados; não são aliases no main-cli e não adquiriram a prova de ambiente descartável desta ferramenta.
+
+Teste adicional: após `npm run build`, execute `npm run test:cli-safety`. Processos reais fonte/compilado usam `.env` fictício privado e hooks que registram/bloqueiam imports de AppModule/config/Mongoose/SMTP, conexões e subprocessos. Os testes exigem zero tentativas, não apenas exit code de erro; geração administrativa é exercitada em arquivo privado próprio, nunca na `.env` do projeto.
 
 Para executar compilado, faça `npm run build` e defina `AFW_DEMO_COMPILED=1` apenas nesse processo; ou use `node dist/main-cli.js seed --name loja-demo -m demo`. Para os scripts `demo:*`, `AFW_DEMO_COMPILED=1` seleciona o runner compilado. O padrão é fonte via ts-node instalado no desenvolvimento.
 
