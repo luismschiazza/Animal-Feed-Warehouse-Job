@@ -120,6 +120,70 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  demo-linux:
+    # Independent evidence, not a substitute for either existing required security job.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI_REPORTS: /tmp/afw-ci-${{ github.run_id }}-${{ github.run_attempt }}-demo
+      CI_EXTRACT: afw-ci-demo-extract-${{ github.run_id }}-${{ github.run_attempt }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, pinned commit
+        with:
+          persist-credentials: false
+      - name: Record identity and build the pinned development toolchain
+        run: |
+          mkdir -m 700 "$CI_REPORTS"
+          printf 'pr_head_sha=%s\nbase_sha=%s\ntested_sha=%s\nstarted_utc=%s\n' "$PR_HEAD_SHA" "$PR_BASE_SHA" "$(git rev-parse HEAD)" "$(date -u +%FT%TZ)" > "$CI_REPORTS/identity.txt"
+          uname -srm >> "$CI_REPORTS/identity.txt"
+          docker build --no-cache --progress=plain --target development -t afw-ci-demo-development . > "$CI_REPORTS/build.log" 2>&1
+          docker image inspect --format '{{.Id}}' afw-ci-demo-development >> "$CI_REPORTS/identity.txt"
+      - name: Extract the reviewed Node and dependencies for native Linux execution
+        run: |
+          # No Docker socket mount, Docker-in-Docker, remote daemon, new action or host npm install.
+          if docker container inspect "$CI_EXTRACT" > /dev/null 2>&1; then echo 'Refusing existing extractor'; exit 1; fi
+          docker create --name "$CI_EXTRACT" afw-ci-demo-development > "$CI_REPORTS/extractor.txt"
+          docker cp "$CI_EXTRACT:/usr/local/bin/node" "$CI_REPORTS/node"
+          docker cp "$CI_EXTRACT:/usr/src/app" "$CI_REPORTS/tools"
+          docker rm -v "$CI_EXTRACT"
+          # Tests are deliberately excluded by .dockerignore; copy this exact checkout's fixtures.
+          cp -R "$GITHUB_WORKSPACE/test" "$CI_REPORTS/tools/test"
+          chmod 700 "$CI_REPORTS/node"
+          test "$("$CI_REPORTS/node" --version)" = 'v24.22.1'
+          "$CI_REPORTS/node" --version >> "$CI_REPORTS/identity.txt"
+          mkdir -m 700 "$CI_REPORTS/private"
+      - name: Full disposable Docker workflow on the Linux host (source and compiled)
+        timeout-minutes: 12
+        env:
+          NODE_ENV: test
+        run: |
+          cd "$CI_REPORTS/tools"
+          export AFW_DEMO_TEST_HOME="$CI_REPORTS/private"
+          "$CI_REPORTS/node" scripts/build-with-tsc.cjs > "$CI_REPORTS/demo-build.log" 2>&1
+          # Prebuild only warms this job's cache; the manager still builds/verifies the same pinned image.
+          docker build --progress=plain -f docker/mongodb.Dockerfile -t afw-commercial-demo-mongo:v1 . > "$CI_REPORTS/mongo-build.log" 2>&1
+          "$CI_REPORTS/node" --test scripts/demo.test.cjs > "$CI_REPORTS/demo-guards.log" 2>&1
+          "$CI_REPORTS/node" -r ts-node/register -r tsconfig-paths/register test/demo-operations.smoke.ts > "$CI_REPORTS/demo-linux.log" 2>&1
+      - name: Cleanup only this CI fixture's proven-owned disposable resources
+        if: always()
+        run: |
+          if docker container inspect "$CI_EXTRACT" > /dev/null 2>&1; then docker rm -f -v "$CI_EXTRACT"; fi
+          if test -d "$CI_REPORTS/private"; then
+            "$CI_REPORTS/node" "$CI_REPORTS/tools/scripts/ci/demo-cleanup.cjs" "$CI_REPORTS/private" > "$CI_REPORTS/cleanup.log" 2>&1
+          fi
+      - name: Sanitize allowlisted reports (never upload private environment directories)
+        if: always()
+        run: *sanitize
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, pinned commit
+        if: always()
+        with:
+          name: demo-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CI_REPORTS }}/sanitized/
+          retention-days: 30
+          if-no-files-found: warn
+
   mongo-integration:
     needs: quality
     runs-on: ubuntu-24.04
