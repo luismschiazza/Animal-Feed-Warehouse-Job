@@ -2,7 +2,7 @@
 
 API para a futura gestão de estoque, loja e depósito de rações, acessórios e produtos para pets. O projeto está sendo modernizado a partir de uma base NestJS existente.
 
-> **Estado atual:** a fundação técnica, autenticação, usuários e modernização de papéis estão em desenvolvimento. Os módulos comerciais — produtos, estoque, compras, vendas, caixa e financeiro — ainda serão implementados. Não use a aplicação atual como um ERP/PDV pronto para produção.
+> **Estado atual:** fundação técnica, autenticação, usuários e papéis empresariais implementados com pendências de governança/operação. O CRUD interno de produtos está implementado nesta proposta, aguardando revisão/aceite; estoque, compras, vendas, caixa e financeiro continuam pendentes. Não use a aplicação atual como um ERP/PDV pronto para produção.
 
 ## Objetivo do produto
 
@@ -180,6 +180,18 @@ Com a aplicação em execução:
 - Swagger UI: `http://localhost:3000/api/docs`
 - Documento OpenAPI: `http://localhost:3000/api/docs-json`
 
+## Catálogo interno de produtos — proposta para revisão
+
+Contrato e desenho: [adaptação do domínio](docs/authorization/PRODUCTS_DOMAIN_ADAPTATION.md). Rotas autenticadas `POST/GET /api/products` e `GET/PATCH/DELETE /api/products/:id`. O tenant vem da sessão e do vínculo ativo, nunca do corpo/query/header.
+
+- SYSTEM_ADMIN, ORGANIZATION_OWNER e MANAGER podem criar/editar/arquivar; os demais papéis empresariais podem ler/listar. CUSTOMER não acessa o CRUD interno. Não há bypass global de administrador.
+- SKU ASCII normalizado em maiúsculas, único **por organização**, inclusive após arquivamento. SKU e unidade (`unit`/`kg`) são imutáveis. Preço inteiro em centavos BRL por unidade/kg; não é saldo de estoque.
+- DELETE arquiva, sem exclusão física/restauração; lista por cursor (`limit` 1–100, `before`). Produto e evento de conclusão são gravados na mesma transação MongoDB. Não há idempotência de entrega HTTP nem controle de versão de edição humana.
+- Antes de habilitar escritas, um operador deve executar `PRODUCTS_MONGO_URL='<URI explícita do replica set e banco alvo>' npm run products:initialize` (ou `node dist/commands/initialize-products.script.js` após build). A CLI só cria coleção/índices: não cria contas, produtos ou estoque, não migra/deduplica dados e não usa `.env`/`MONGO_URL` como fallback. Não aponte para dados reais durante testes.
+- Runtime requer `find/insert/update/listIndexes` em `products`; **não** `remove/createIndex/dropIndex/dropCollection`. Auditoria continua append-only, com os privilégios próprios existentes. Índice ausente/inadequado bloqueia escritas com 503, sem DDL automático. O operador não deve remover índices durante tráfego; a verificação de prontidão não é um lock contra DDL administrativo concorrente.
+
+Validação descartável: `SESSIONS_TEST_MONGO_URL='<replica set descartável com enableTestCommands=1>' npm run test:sessions`; a suíte inclui produtos e compila o checkout para testar a CLI fonte/compilada. ACL autenticada: `AUDIT_TEST_ADMIN_URL='<replica set local descartável autenticado>' npm run test:products-operations`. Os testes criam/removem somente seus bancos aleatórios; não use banco real.
+
 ## Comandos úteis
 
 ```bash
@@ -217,11 +229,11 @@ O Kanban e as issues da modernização estão no repositório. A ordem de implem
 4. ABAC e isolamento por organização/recurso — implementado e validado nos recursos atuais, com provisionamento inicial controlado;
 5. gestão de sessões — integrada e validada (#5 / PR #10);
 6. auditoria geral e regressões de segurança — integrada e validada (#6 / PR #11);
-7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta, tickets #16–#23; #16 configura limites e #17 implementa admissão atômica, ambas integradas/revalidadas (2/8); substituição #18 não iniciada;
+7. [reforço de sessões/contas (#12)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/12) — principal aberta, tickets #16–#23; #16 configura limites e #17 implementa admissão atômica, integradas/revalidadas, assim como a substituição/recuperação #18 via PR #29 (3/8); cliente ainda pendente;
 8. [CI/CD e qualidade (#13)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/13) — Backlog;
 9. [ambientes, observabilidade e recuperação (#14)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/14) — Backlog;
 10. [funcionários e vínculos (#15)](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/15) — Backlog;
-11. produtos, categorias, marcas e unidades;
+11. catálogo interno de produtos — implementado nesta proposta, aguardando revisão; categorias/unidades são enums e marca é texto, sem CRUDs próprios;
 12. locais, saldo e movimentações de estoque;
 13. fornecedores, compras e recebimento;
 14. clientes, vendas e caixa;

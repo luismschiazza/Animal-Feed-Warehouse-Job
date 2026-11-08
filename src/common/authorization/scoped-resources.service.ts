@@ -15,6 +15,7 @@ import {
 } from './policy.types';
 
 const models: Partial<Record<PolicyResource, string>> = {
+  [PolicyResource.PRODUCT]: 'Product',
   [PolicyResource.LEGACY_DISCIPLINE]: 'Discipline',
   [PolicyResource.LEGACY_ATTENDANCE]: 'Attendance',
   [PolicyResource.LEGACY_GRADE]: 'Grade',
@@ -37,7 +38,10 @@ export class ScopedResourcesService {
     private readonly audit: SecurityAuditService,
   ) {}
 
-  private model(resource: PolicyResource): Model<any> {
+  private model(resource: PolicyResource, authorizationOnly = false): Model<any> {
+    // Products reuse attribute authorization, never the legacy generic CRUD (physical delete,
+    // unbounded list and non-transactional writes bypass catalog invariants).
+    if (resource === PolicyResource.PRODUCT && !authorizationOnly) throw this.denied();
     const name = models[resource];
     if (!name || !this.connection.models[name]) throw this.denied();
     return this.connection.models[name];
@@ -131,7 +135,7 @@ export class ScopedResourcesService {
       row =
         resource === PolicyResource.USER
           ? await this.userRow(id, actor.organizationId)
-          : await this.model(resource)
+          : await this.model(resource, true)
               .findOne({
                 _id: this.oid(id),
                 organizationId: this.oid(actor.organizationId),
