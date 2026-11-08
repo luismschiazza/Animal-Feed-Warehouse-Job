@@ -109,8 +109,10 @@ async function run() {
   const absent = manager.locations('dry-' + tag).dir;
   exec(['create', '--name', 'dry-' + tag, '--dry-run']);
   assert.ok(!fs.existsSync(absent));
-  exec(['seed', '--name', name, '--module', 'disciplines'], false, false, true);
-  exec(['seed', '--name', name, '--module', 'mails'], false, true, true);
+  // The legacy-compatible entry already appends "seed"; avoid rejecting a duplicate
+  // positional argument instead of exercising the actual disabled school/mail selector.
+  exec(['--name', name, '--module', 'disciplines'], false, false, true);
+  exec(['--name', name, '--module', 'mails'], false, true, true);
   exec(['create', '--name', name]);
   const e = remember(name);
   let db = await connect(e);
