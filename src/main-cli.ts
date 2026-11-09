@@ -1,8 +1,6 @@
-import { CommandFactory } from 'nest-commander';
-import { AppModule } from './app/app.module';
+import { dispatchCli } from './commands/cli-dispatch';
 
-async function bootstrap() {
-  await CommandFactory.run(AppModule, ['error', 'warn', 'log']);
-}
-
-bootstrap();
+void dispatchCli(process.argv.slice(2)).catch(() => {
+  console.error('CLI command failed; use --help. No credentials logged.');
+  process.exitCode = 1;
+});

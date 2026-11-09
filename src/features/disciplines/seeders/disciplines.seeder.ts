@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { rejectLegacySeed } from '@/commands/seed/services/seed.service';
 import { DisciplineFactory } from '../factories/discipline.factory';
 import { Discipline } from '../interfaces/discipline.interface';
 
@@ -14,6 +15,7 @@ export class DisciplinesSeeder {
   ) {}
 
   async run(limit?: number): Promise<void> {
+    rejectLegacySeed();
     const amount = limit && limit > 0 ? limit : 25;
 
     const disciplines = DisciplineFactory.makeMany(amount);

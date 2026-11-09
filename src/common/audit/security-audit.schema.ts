@@ -3,6 +3,7 @@ import { SchemaTypes, Types } from 'mongoose';
 import { Role } from '../enums/role.enum';
 
 export enum AuditEvent {
+  DEMO_PROVISION = 'demo_provision',
   PRODUCT = 'product_operation',
   SESSION_ADMISSION = 'session_admission',
   REPLACEMENT_START = 'session_replacement_start',

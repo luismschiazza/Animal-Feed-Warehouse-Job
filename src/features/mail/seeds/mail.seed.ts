@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { rejectLegacySeed } from '@/commands/seed/services/seed.service';
 import { AttendanceLowFactory } from '../factories/attendance-low.factory';
 import { GradeReleasedFactory } from '../factories/grade-released.factory';
 import { MeetingScheduledFactory } from '../factories/meeting-scheduled.factory';
@@ -15,6 +16,7 @@ export class MailSeed {
   constructor(private readonly mailer: MailService) {}
 
   async run(): Promise<void> {
+    rejectLegacySeed();
     this.logger.log('Running Mailer Seeder (Rendering test emails)…');
 
     const commonName = 'John Test';
