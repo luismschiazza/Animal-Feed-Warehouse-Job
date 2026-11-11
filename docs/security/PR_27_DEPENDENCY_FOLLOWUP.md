@@ -32,6 +32,14 @@
 
 CNA: REJECTED, motivo “This CVE ID has been rejected because it does not describe a security vulnerability.” NVDRejected; GHSA reviewedLOW/ativo/withdrawnnull e sem first patch. Perfil proposto expira7dias (até2026-11-10T22:09:20.702Z); coleta oficial por execução válida≤1h, classificaçãooffline. Qualquer campo GHSA modificado (inclusiveEPSS), finding novo/alterado, productionfinding, payload/lock/path/version diferente ou falhaHTTP bloqueia. Não renovar data/fingerprint por tarefa automática. Withdrawn+feed6 bloqueia; withdrawn+feed0 permite clean sem manter exceção; feed0+GHSAativo bloqueia no perfil.
 
+### Caminho limpo e prazo da S1 — correção de 11/11/2026
+
+O prazo original **2026-11-10T22:09:20.702Z** continua sendo aplicado à exceção dos seis achados e **não foi renovado**. Ele não deve impedir o retorno `clean-after-official-withdrawal` quando GHSA oficialmente retirado e audits de produção e completo realmente zerados estiverem sincronizados, mesmo após essa data. Nesse retorno, os exits reais são `{production: 0, full: 0}`, `localExceptionApplied` é `false` e não se emite aprovação temporária nem novo prazo.
+
+Não há curto-circuito por JSON vazio: permanecem validação de relatórios/contagens/exits, lock/payload pinados, URLs/HTTP/integridade/frescor das fontes, identidades e registros CNA/NVD rejeitados e validade do campo de retirada do GHSA. GHSA ativo + feed vazio ou GHSA retirado + findings continuam bloqueando. Seis achados com GHSA ativo após o prazo continuam bloqueando, preservando o raw full exit1. Mudanças de lock/payload/registros ou nova composição corrigida exigem revisão própria, não renovação automática nem passagem genérica por esta correção.
+
+Testes cobrem os limites originais, clean pós-prazo, findings pós-prazo, divergências nos dois sentidos e manutenção dos demais controles. O round-trip da CLI usa clocks simulados somente em filhos descartáveis dos testes para comprovar a janela histórica e a recusa posterior, sem depender do dia em que a suíte roda; nenhuma opção de relógio/env foi adicionada à política de produção. Fixtures não são novas consultas oficiais. A consulta real de 11/11/2026 ainda encontrou GHSA ativo: testes de retirada simulada não constituem auditoria real limpa, renovação, merge ou deploy.
+
 Disponibilidade faz parte do gate: a tentativa de2026-11-03T22:42:25.814Z recebeu GHSAHTTP403/rate remaining0 e bloqueou sem cache. A coleta válida final indicada acima ocorreu em nova pasta após o reset oficial; não substitui nem converte essa falha em sucesso.
 
 Ao sincronizar ambos: capturar novamente os originais, rodar classificador original na candidata e documentar0real; propor remover dispatch/perfil/fixtures específicos e etapa de coleta se não mais necessários, mantendo tests negativos gerais e audits. Para release Jest sem deepmerge: nova revisão completa da árvore/contratos, não só retirada de JSON.

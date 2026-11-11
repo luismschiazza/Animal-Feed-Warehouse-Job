@@ -20,8 +20,6 @@ function evaluate(input, now = Date.now()) {
   const { official, production, full, exits, lock } = input;
   // Reuse exactly the strict report/graph/chain validator, with six literal versions, not eight+six.
   const result = scope({ production, full, exits, lock });
-  check(Number.isFinite(now) && now >= Date.parse(baseline.reviewedAt) - 60000
-    && now <= Date.parse(baseline.expiresAt), 'review-expired-or-future');
   check(digest(lock) === baseline.lock, 'unreviewed-lock');
   check(digest(payload()) === digest(baseline.payload), 'changed-deepmerge-payload');
   const age = now - Date.parse(official?.observedAt);
@@ -44,6 +42,9 @@ function evaluate(input, now = Date.now()) {
     return { ...result, outcome: 'clean-after-official-withdrawal', localExceptionApplied: false };
   }
   check(result.outcome !== 'clean', 'active-ghsa-missing-from-feed');
+  // Only the six-finding exception expires; synchronized clean audits apply no exception.
+  check(Number.isFinite(now) && now >= Date.parse(baseline.reviewedAt) - 60000
+    && now <= Date.parse(baseline.expiresAt), 'review-expired-or-future');
   check(ghsa.type === 'reviewed' && ghsa.severity === 'low' && ghsa.vulnerabilities?.length === 1
     && ghsa.vulnerabilities[0].package?.ecosystem === 'npm' && ghsa.vulnerabilities[0].package.name === 'deepmerge'
     && ghsa.vulnerabilities[0].vulnerable_version_range?.replace(/[\s,]/g, '') === '>=4.2.0<=4.3.1'
