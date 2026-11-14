@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "id": "S2",
+  "status": "APPROVED_TEMPORARY_BY_OWNER",
+  "approval": {
+    "approvedBy": "Proprietário do repositório — autorização expressa nesta conversa, registrada pelo agente",
+    "approvedAt": "2026-11-14T02:06:42.000Z",
+    "decisionReference": "docs/security/S2_OWNER_DECISION_20261114.md"
+  },
+  "replacesExpiredProfile": "S1",
+  "proposedAt": "2026-11-11T23:57:34.355Z",
+  "reviewedAt": "2026-11-11T23:57:34.355Z",
+  "expiresAt": "2026-11-14T23:57:34.355Z",
+  "maxDurationHours": 72,
+  "advisory": "GHSA-gcqx-w48m-w2h4",
+  "cve": "CVE-2026-93753",
+  "packages": {
+    "@jest/core": "30.5.2",
+    "deepmerge": "4.3.1",
+    "jest": "30.5.2",
+    "jest-cli": "30.5.2",
+    "jest-config": "30.5.2",
+    "ts-jest": "29.4.15"
+  },
+  "records": {
+    "cve": "42ad863c99ded4f00ef3b17feaa6596be79a90ab6412ddb49d6ef99914475797",
+    "nvd": "48cfc5858a749cf133ac592d063d4ec210988f805a8d1e53145dc07c6ae13197",
+    "ghsa": "165df4c280f61d014cb833139b7ed0fb7936329195b74c1941a6944c6aef3616"
+  },
+  "findings": "37564eba37f3cf013b2f35a99eb33370c2c906c3d1dcca6b7fad28d1e011c298",
+  "lock": "416406e3f204ed545b8131ba6fb1f81dd6c5c15822afec96dc34ed23dafb19fd",
+  "payload": {
+    "entry": "2e5160f84a1141bd927264afe4d15766f1e6cf07daef182b37ff53fea121de7d",
+    "package": "f56978e7a6da1a3c6edee41abb54f98584a2fa2680458c48db820ae772fef0c9"
+  },
+  "reason": "Owner-approved exact temporary development-only feed discrepancy disposition after fresh conforming preflight on 2026-11-14. CNA/NVD reject this CVE but GHSA/npm remain active; upstream withdrawal PR11056 is open/unmerged. Same six findings and reviewed pins, original fixed deadline unchanged. Not a patch, clean full audit, S1 renewal, merge/deploy or production clearance.",
+  "reviewIntervalHours": 24,
+  "retireOn": [
+    "Official withdrawal AND genuinely clean production/full audits with real exits00 and all applicable checks",
+    "Recognized official remediation in a separately reviewed new tree, then retire/review this pinned dispatcher",
+    "Any change to advisory/records/findings/versions/paths/lock/payload/prod reachability requires stop and separate review, never automatic baseline refresh",
+    "Owner revocation or fixed absolute deadline, whichever comes first"
+  ],
+  "evidence": {
+    "observedAt": "2026-11-11T23:56:14.845Z",
+    "rawAuditExits": {
+      "production": 0,
+      "full": 1
+    },
+    "sourceReceipts": {
+      "cve": {
+        "url": "https://cveawg.mitre.org/api/cve/CVE-2026-93753",
+        "status": 200,
+        "sha256": "42ad863c99ded4f00ef3b17feaa6596be79a90ab6412ddb49d6ef99914475797",
+        "rawSHA256": "4af791f6a41d4602c12e3c1ee0089fc8361600dec87731f3d6490b47dcf5c82a"
+      },
+      "nvd": {
+        "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-93753",
+        "status": 200,
+        "sha256": "77858f15d2b047ef66f41444975fba3e42f29505055dc008855b51d33727bc99",
+        "rawSHA256": "09d4452025e6600b105e8a8e6d1e552dd0dbc99e65e103d1dd0790949d5ead8a"
+      },
+      "ghsa": {
+        "url": "https://api.github.com/advisories/GHSA-gcqx-w48m-w2h4",
+        "status": 200,
+        "sha256": "165df4c280f61d014cb833139b7ed0fb7936329195b74c1941a6944c6aef3616",
+        "rawSHA256": "129678c2a239966df96de51652fed82705e52bf32828c008c5a37e0bce39bf78"
+      }
+    }
+  }
+}

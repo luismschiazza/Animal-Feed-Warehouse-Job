@@ -33,7 +33,8 @@ jobs:
       - name: Check npm tree and test audit policies (legacy, exact six-package scope and official-record transitions)
         run: |
           docker run --rm --name "$CI_CLIENT" --network none afw-ci-development npm ls --all --json > "$CI_REPORTS/npm-tree.json" 2> "$CI_REPORTS/npm-tree.stderr.log"
-          docker run --rm --name "$CI_CLIENT" --network none afw-ci-development sh -ec 'node --test scripts/ci/*.test.cjs' > "$CI_REPORTS/audit-policy-tests.log" 2>&1
+          # .github is excluded from the image; provide only this exact checkout's workflow fixture, readonly.
+          docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$GITHUB_WORKSPACE/.github/workflows/security-ci.yml,target=/usr/src/app/.github/workflows/security-ci.yml,readonly" afw-ci-development sh -ec 'node --test scripts/ci/*.test.cjs' > "$CI_REPORTS/audit-policy-tests.log" 2>&1
       - name: Capture current public CVE, NVD and GHSA records (no credentials)
         run: |
           # Only this producer has network access. Offline classification below stays network none.
@@ -53,7 +54,7 @@ jobs:
           cat "$CI_REPORTS/audit-exits.json" >> "$GITHUB_STEP_SUMMARY"
           cat "$CI_REPORTS/audit-triage.json" >> "$GITHUB_STEP_SUMMARY"
           if grep -q 'reviewed-cve-rejected-feed-discrepancy' "$CI_REPORTS/audit-triage.json"; then
-            echo '::warning title=Exact development feed discrepancy::CVE-2026-93753 is REJECTED but GHSA-gcqx-w48m-w2h4 remains active. Six LOW / raw audit exit 1 retained. Temporary S1 explicitly approved by owner for this candidate, original expiry unchanged; no package fix, blanket exception, merge/deploy or production clearance.'
+            echo '::warning title=Exact development feed discrepancy::CVE-2026-93753 is REJECTED but GHSA-gcqx-w48m-w2h4 remains active. Six LOW / raw audit exit 1 retained. Only an explicitly owner-approved versioned exact disposition may apply; inspect policyId and reviewExpiresAt. S1 remains expired and pending S2 is not approval; no clean full audit, package fix, blanket exception, merge/deploy or production clearance.'
           fi
       - name: Lint, TypeScript, build, unit tests, E2E, Babel coverage and real asset packaging
         timeout-minutes: 10
