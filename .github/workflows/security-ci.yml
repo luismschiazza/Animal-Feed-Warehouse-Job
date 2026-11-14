@@ -53,7 +53,7 @@ jobs:
           cat "$CI_REPORTS/audit-exits.json" >> "$GITHUB_STEP_SUMMARY"
           cat "$CI_REPORTS/audit-triage.json" >> "$GITHUB_STEP_SUMMARY"
           if grep -q 'reviewed-cve-rejected-feed-discrepancy' "$CI_REPORTS/audit-triage.json"; then
-            echo '::warning title=Exact development feed discrepancy::CVE-2026-93753 is REJECTED but GHSA-gcqx-w48m-w2h4 remains active. Six LOW / raw audit exit 1 retained. Temporary S1 explicitly approved by owner for this candidate, original expiry unchanged; no package fix, blanket exception, merge/deploy or production clearance.'
+            echo '::warning title=Exact development feed discrepancy::CVE-2026-93753 is REJECTED but GHSA-gcqx-w48m-w2h4 remains active. Six LOW / raw audit exit 1 retained. Only an explicitly owner-approved versioned exact disposition may apply; inspect policyId and reviewExpiresAt. S1 remains expired and pending S2 is not approval; no clean full audit, package fix, blanket exception, merge/deploy or production clearance.'
           fi
       - name: Lint, TypeScript, build, unit tests, E2E, Babel coverage and real asset packaging
         timeout-minutes: 10
