@@ -169,11 +169,12 @@ function cli(f, at, simulatedCandidate, inspect) {
     assert.equal(fs.readFileSync(committedPath, 'utf8'), committedBefore);
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
-test('CI keeps raw audit exits, no-cache build and Mongo dependency; only warning wording changes', () => {
+test('CI keeps raw audit exits, no-cache build and Mongo dependency with mandatory readonly workflow fixture', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '../../.github/workflows/security-ci.yml'), 'utf8');
   assert.match(workflow, /mongo-integration:\r?\n    needs: quality/);
   assert.match(workflow, /docker build --no-cache --progress=plain --target development/);
   assert.match(workflow, /node --test scripts\/ci\/\*\.test\.cjs/);
+  assert.match(workflow, /--mount "type=bind,source=\$GITHUB_WORKSPACE\/\.github\/workflows\/security-ci\.yml,target=\/usr\/src\/app\/\.github\/workflows\/security-ci\.yml,readonly"/);
   assert.match(workflow, /production_exit=\$\?/); assert.match(workflow, /full_exit=\$\?/);
   assert.match(workflow, /node scripts\/ci\/audit-policy\.cjs/);
   assert.doesNotMatch(workflow, /continue-on-error:|--audit-level/);

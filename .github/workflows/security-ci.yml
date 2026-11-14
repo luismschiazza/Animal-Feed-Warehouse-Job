@@ -33,7 +33,8 @@ jobs:
       - name: Check npm tree and test audit policies (legacy, exact six-package scope and official-record transitions)
         run: |
           docker run --rm --name "$CI_CLIENT" --network none afw-ci-development npm ls --all --json > "$CI_REPORTS/npm-tree.json" 2> "$CI_REPORTS/npm-tree.stderr.log"
-          docker run --rm --name "$CI_CLIENT" --network none afw-ci-development sh -ec 'node --test scripts/ci/*.test.cjs' > "$CI_REPORTS/audit-policy-tests.log" 2>&1
+          # .github is excluded from the image; provide only this exact checkout's workflow fixture, readonly.
+          docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$GITHUB_WORKSPACE/.github/workflows/security-ci.yml,target=/usr/src/app/.github/workflows/security-ci.yml,readonly" afw-ci-development sh -ec 'node --test scripts/ci/*.test.cjs' > "$CI_REPORTS/audit-policy-tests.log" 2>&1
       - name: Capture current public CVE, NVD and GHSA records (no credentials)
         run: |
           # Only this producer has network access. Offline classification below stays network none.

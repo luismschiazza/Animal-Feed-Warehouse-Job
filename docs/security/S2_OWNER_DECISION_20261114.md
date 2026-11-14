@@ -63,3 +63,9 @@ O classificador verifica prazo e fontes em cada execução, mas isso não consti
 Publicar commit normal na PR #33, mantê-la draft e executar os três jobs originais, incluindo Mongo/ACLs/mTLS Ubuntu e demo Linux completo. Não alterar needs, gates, thresholds, assertions, failpoints ou timeouts. Exigir identidade do HEAD/tree e artifacts; manter full exit 1/6 LOW e disposição `policyId: S2`, `localExceptionApplied: true` explícitos se o quadro continuar igual.
 
 Se houver divergência no CI, parar e apresentar o bloqueio, sem refresh de pins ou bypass. Mesmo com todos os jobs aprovados, apresentar os resultados para **nova decisão do proprietário**. **Sem merge e sem deploy.**
+
+### Primeira execução preservada e correção de fixture
+
+O run [43545568608](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/actions/runs/43545568608), no HEAD `63a0aaf4df77ecca6c81a42fe9e04d0c91a9ce07`, teve demo-linux aprovado, mas quality parou em **227/228 políticas**: o teste estrutural não encontrou `.github/workflows/security-ci.yml`, pois `.github` é excluído pelo `.dockerignore`. Captura oficial, audits e regressões seguintes não rodaram nesse job; Mongo foi corretamente skipped pelo `needs: quality`. Não atribuir os audits locais ou testes Mongo anteriores a esse run.
+
+A falha e seus artefatos foram preservados e comunicados. Correção mínima: fornecer somente o arquivo exato do checkout via bind mount **readonly** ao comando de testes. A assertion estrutural permanece e foi fortalecida para exigir essa provisão. Não liberar todo `.github` na imagem, não remover/condicionar o teste, não modificar needs, gates, thresholds, timeouts, failpoints, dependências, lock, pins ou o JSON de aprovação. Publicar correção em outro commit normal e executar o workflow completo novamente no novo SHA, sem rerun para sortear verde no mesmo código.
