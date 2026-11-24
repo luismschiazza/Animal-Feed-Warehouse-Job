@@ -44,6 +44,10 @@ export class UsersService {
     return this.resources.list(PolicyResource.USER, actor);
   }
 
+  async findPage(actor: PolicySubject, limit: number, after?: string) {
+    return this.resources.listUsersPage(actor, limit, after);
+  }
+
   async findScopedAccount(id: string, actor: PolicySubject) {
     return this.resources.get(PolicyResource.USER, id, actor);
   }

@@ -358,6 +358,147 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     expect((await list(inA.access_token)).body).toEqual([]);
   });
 
+  describe('Opt-in user pages', () => {
+    const add = async (org: string, suffix: string, status = MembershipStatus.ACTIVE) => {
+      const account = await users.create({
+        name: `Page ${suffix}`,
+        email: `page-${suffix}@example.test`,
+        password: 'not-used-by-this-test',
+        roles: [Role.SYSTEM_ADMIN],
+        status: AccountStatus.ACTIVE,
+      });
+      await memberships.create({
+        organizationId: org,
+        userId: account.id,
+        roles: [Role.CUSTOMER],
+        status,
+      });
+      return account;
+    };
+    const page = (token: string, query: Record<string, string> = {}) =>
+      request(app.getHttpServer()).get('/users/page').auth(token, { type: 'bearer' }).query(query);
+
+    it('keeps the legacy array, serves stable tenant-scoped pages, and rejects foreign/tampered cursors', async () => {
+      const a = await tenant('Page A', [Role.SYSTEM_ADMIN]);
+      const b = await tenant('Page B', [Role.SYSTEM_ADMIN]);
+      const first = await add(a, 'first');
+      const second = await add(a, 'second');
+      const foreign = await add(b, 'foreign');
+      const inA = (await login('Page A', a)).access_token;
+      const inB = (await login('Page B', b)).access_token;
+      const [one, again] = await Promise.all([
+        page(inA, { limit: '1' }).expect(200),
+        page(inA, { limit: '1' }).expect(200),
+      ]);
+      const cursor = one.body.nextCursor;
+      expect(typeof cursor).toBe('string');
+      expect(again.body).toEqual(one.body);
+      expect(one.body.items).toEqual([
+        expect.objectContaining({ id: first.id, roles: [Role.CUSTOMER] }),
+      ]);
+      expect(one.body.items[0]).not.toHaveProperty('password');
+      expect((await page(inA, { after: cursor }).expect(200)).body).toEqual({
+        items: [expect.objectContaining({ id: second.id })],
+        nextCursor: null,
+      });
+      expect((await page(inB, { limit: '100' }).expect(200)).body.items).toEqual([
+        expect.objectContaining({ id: foreign.id }),
+      ]);
+      await page(inB, { after: cursor }).expect(400);
+      await page(inA, { after: cursor.slice(0, -1) + (cursor.endsWith('a') ? 'b' : 'a') }).expect(
+        400,
+      );
+      const legacy = await request(app.getHttpServer())
+        .get('/users')
+        .auth(inA, { type: 'bearer' })
+        .expect(200);
+      expect(legacy.body.map((item) => item.id).sort()).toEqual([first.id, second.id].sort());
+      const audits = await connection.models.SecurityAuditRecord.find({
+        requestId: one.headers['x-request-id'],
+        event: AuditEvent.AUTHORIZATION,
+        organizationId: a,
+        result: 'allowed',
+      }).lean();
+      expect(audits.map((row) => row.phase).sort()).toEqual(['guard', 'service', 'service']);
+    });
+
+    it('reads changed rows and actor permissions afresh and does not require the cursor row to exist', async () => {
+      const org = await tenant('Page live', [Role.SYSTEM_ADMIN]);
+      const first = await add(org, 'live-first');
+      const suspended = await add(org, 'live-suspended');
+      const changed = await add(org, 'live-changed');
+      const token = (await login('Page live', org)).access_token;
+      const {
+        body: { nextCursor },
+      } = await page(token, { limit: '1' }).expect(200);
+      await memberships.deleteOne({ organizationId: org, userId: first.id });
+      await users.updateOne({ _id: suspended.id }, { $set: { status: AccountStatus.SUSPENDED } });
+      await memberships.updateOne(
+        { organizationId: org, userId: changed.id },
+        { $set: { roles: [Role.MANAGER] } },
+      );
+      const inserted = await add(org, 'live-inserted');
+      expect((await page(token, { after: nextCursor }).expect(200)).body).toEqual({
+        items: [
+          expect.objectContaining({ id: changed.id, roles: [Role.MANAGER] }),
+          expect.objectContaining({ id: inserted.id }),
+        ],
+        nextCursor: null,
+      });
+      await memberships.updateOne(
+        { organizationId: org, userId },
+        { $set: { roles: [Role.CUSTOMER] } },
+      );
+      const denied = await page(token, { after: nextCursor }).expect(403);
+      expect(
+        await connection.models.SecurityAuditRecord.exists({
+          requestId: denied.headers['x-request-id'],
+          event: AuditEvent.AUTHORIZATION,
+          result: 'denied',
+        }),
+      ).not.toBeNull();
+      await memberships.updateOne(
+        { organizationId: org, userId },
+        { $set: { roles: [Role.SYSTEM_ADMIN], status: MembershipStatus.SUSPENDED } },
+      );
+      await page(token, { after: nextCursor }).expect(403);
+    });
+
+    it('validates query and authentication and advances through sparse and empty pages', async () => {
+      const org = await tenant('Page sparse', [Role.SYSTEM_ADMIN]);
+      const token = (await login('Page sparse', org)).access_token;
+      await request(app.getHttpServer()).get('/users/page').expect(401);
+      expect((await page(token).expect(200)).body).toEqual({ items: [], nextCursor: null });
+      for (const query of [
+        'limit=0',
+        'limit=101',
+        'limit=01',
+        'limit=1e1',
+        'limit=1%0A',
+        'limit=1&limit=2',
+        'after=',
+        'extra=1',
+      ]) {
+        await request(app.getHttpServer())
+          .get(`/users/page?${query}`)
+          .auth(token, { type: 'bearer' })
+          .expect(400);
+      }
+      await add(org, 'sparse-first', MembershipStatus.SUSPENDED);
+      await add(org, 'sparse-second', MembershipStatus.SUSPENDED);
+      const last = await add(org, 'sparse-last');
+      const { body: empty } = await page(token, { limit: '1' }).expect(200);
+      expect(empty.items).toEqual([]);
+      expect(typeof empty.nextCursor).toBe('string');
+      expect(
+        (await page(token, { limit: '100', after: empty.nextCursor }).expect(200)).body,
+      ).toEqual({
+        items: [expect.objectContaining({ id: last.id })],
+        nextCursor: null,
+      });
+    });
+  });
+
   describe('General security audit — persisted events and isolated readers', () => {
     const auditModel = () => connection.models.SecurityAuditRecord as Model<SecurityAuditRecord>;
     const readAudit = (token: string, path = '/audit/own-events') =>

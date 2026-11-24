@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
   UseGuards,
   UsePipes,
@@ -19,8 +20,10 @@ import { PolicyAction, PolicyResource } from '@/common/authorization/policy.type
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
 import { ResponseUserArrayDto } from '../dtos/response/response-user-array.dto';
 import { ResponseUserSingleDto } from '../dtos/response/response-user-single.dto';
+import { ResponseUsersPageDto } from '../dtos/response/response-users-page.dto';
 import { UserDto } from '../dtos/response/user.dto';
 import { CreateUserDto } from '../dtos/validation/create-user.dto';
+import { ListUsersPageDto } from '../dtos/validation/list-users-page.dto';
 import { UpdateUserDto } from '../dtos/validation/update-user.dto';
 import { ExcludeOwnUserGuard } from '../guards/exclude-own-user.guard';
 import { NotOwnUserGuard } from '../guards/not-own-user.guard';
@@ -51,6 +54,21 @@ export class UsersController {
   @Get()
   async findAll(@Request() req) {
     return plainToInstance(UserDto, req.filteredUsers, { excludeExtraneousValues: true });
+  }
+
+  @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.USER })
+  @ApiOkResponse({ type: ResponseUsersPageDto })
+  @Get('page')
+  async findPage(@Request() req, @Query() query: ListUsersPageDto) {
+    const { items, nextCursor } = await this.usersService.findPage(
+      req.user,
+      query.limit === undefined ? 50 : Number(query.limit),
+      query.after,
+    );
+    return {
+      items: plainToInstance(UserDto, items, { excludeExtraneousValues: true }),
+      nextCursor,
+    };
   }
 
   @UseGuards(NotOwnUserGuard)
