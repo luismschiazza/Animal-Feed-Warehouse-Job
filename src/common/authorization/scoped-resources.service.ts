@@ -169,7 +169,9 @@ export class ScopedResourcesService {
       const members = await this.connection.models.OrganizationMembership.find({
         organizationId: this.oid(actor.organizationId),
         status: 'active',
-      }).lean();
+      })
+        .select('userId roles -_id')
+        .lean();
       // Index this request's scoped memberships once instead of scanning them for each user.
       const membersByUserId = new Map<string, (typeof members)[number]>();
       for (const member of members) {
