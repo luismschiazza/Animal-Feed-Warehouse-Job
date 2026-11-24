@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
 const { evaluate: scope, PACKAGES } = require('./audit-discrepancy-scope.cjs');
-const baseline = require('./audit-discrepancy-baseline.json');
+const baseline = require('./audit-discrepancy-baseline.json'); // S1 archived unchanged; original deadline still applies.
+const candidate = require('./audit-discrepancy-s2-proposal.json'); // PENDING, never activated by audit input.
+const { selectProfile } = require('./audit-discrepancy-profiles.cjs');
 const { check, digest, sha, URLS } = require('./audit-official-sources.cjs');
 
 function payload() {
@@ -20,8 +22,6 @@ function evaluate(input, now = Date.now()) {
   const { official, production, full, exits, lock } = input;
   // Reuse exactly the strict report/graph/chain validator, with six literal versions, not eight+six.
   const result = scope({ production, full, exits, lock });
-  check(Number.isFinite(now) && now >= Date.parse(baseline.reviewedAt) - 60000
-    && now <= Date.parse(baseline.expiresAt), 'review-expired-or-future');
   check(digest(lock) === baseline.lock, 'unreviewed-lock');
   check(digest(payload()) === digest(baseline.payload), 'changed-deepmerge-payload');
   const age = now - Date.parse(official?.observedAt);
@@ -44,6 +44,11 @@ function evaluate(input, now = Date.now()) {
     return { ...result, outcome: 'clean-after-official-withdrawal', localExceptionApplied: false };
   }
   check(result.outcome !== 'clean', 'active-ghsa-missing-from-feed');
+  // Only the six-finding exception expires; synchronized clean audits apply no exception.
+  // Pending/revoked S2 returns the original S1: no automatic approval, renewal or fallback waiver.
+  const profile = selectProfile(baseline, candidate, now);
+  check(Number.isFinite(now) && now >= Date.parse(profile.reviewedAt) - 60000
+    && now <= Date.parse(profile.expiresAt), 'review-expired-or-future');
   check(ghsa.type === 'reviewed' && ghsa.severity === 'low' && ghsa.vulnerabilities?.length === 1
     && ghsa.vulnerabilities[0].package?.ecosystem === 'npm' && ghsa.vulnerabilities[0].package.name === 'deepmerge'
     && ghsa.vulnerabilities[0].vulnerable_version_range?.replace(/[\s,]/g, '') === '>=4.2.0<=4.3.1'
@@ -51,8 +56,9 @@ function evaluate(input, now = Date.now()) {
   // Pin ALL definition fields (even EPSS); no silent refresh/extension from registry output.
   check(digest(ghsa) === baseline.records.ghsa, 'changed-ghsa-record');
   check(digest(full.vulnerabilities) === baseline.findings, 'changed-audit-findings');
-  return { ...result, outcome: 'reviewed-cve-rejected-feed-discrepancy', policyStatus: baseline.status,
-    consultedAt: official.observedAt, reviewExpiresAt: baseline.expiresAt,
-    warning: 'Full npm audit remains exit 1 / six LOW. Owner-approved temporary exact dev-only feed discrepancy; original expiry and scope unchanged. Not a package fix, clean audit, merge/deploy or production clearance.' };
+  return { ...result, outcome: 'reviewed-cve-rejected-feed-discrepancy', policyStatus: profile.status,
+    policyId: profile.id || 'S1', localExceptionApplied: true,
+    consultedAt: official.observedAt, reviewExpiresAt: profile.expiresAt,
+    warning: 'Full npm audit remains exit 1 / six LOW. Explicit owner-approved versioned exact dev-only disposition, not a package fix, clean audit, S1 renewal, merge/deploy or production clearance.' };
 }
 module.exports = { evaluate, PACKAGES, payload };
