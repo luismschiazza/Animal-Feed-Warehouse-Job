@@ -109,7 +109,9 @@ jobs:
           if sources.is_dir() and not sources.is_symlink():
               public = target / 'official'
               public.mkdir(exist_ok=True)
-              allowed = {'bundle.json'} | {name + suffix for name in ('cve', 'nvd', 'ghsa') for suffix in ('.body', '.receipt.json', '.failure.json', '.partial-body')}
+              suffixes = ('.body', '.receipt.json', '.failure.json', '.partial-body')
+              allowed = {'bundle.json', 'nvd.attempts.json'} | {name + suffix for name in ('cve', 'nvd', 'ghsa') for suffix in suffixes}
+              allowed |= {f'nvd.attempt-{attempt:02d}' + suffix for attempt in range(1, 4) for suffix in suffixes}
               for file in sources.iterdir():
                   if file.name in allowed and file.is_file() and not file.is_symlink():
                       (public / file.name).write_bytes(file.read_bytes())

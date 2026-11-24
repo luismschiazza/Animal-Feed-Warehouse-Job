@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
-const URLS=Object.freeze({cve:'https://cveawg.mitre.org/api/cve/CVE-2026-93753',nvd:'https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-93753',ghsa:'https://api.github.com/advisories/GHSA-gcqx-w48m-w2h4'});
+const { captureNvd, NVD_URL } = require('./audit-nvd-source.cjs');
+const URLS=Object.freeze({cve:'https://cveawg.mitre.org/api/cve/CVE-2026-93753',nvd:NVD_URL,ghsa:'https://api.github.com/advisories/GHSA-gcqx-w48m-w2h4'});
 const canonical=v=>JSON.stringify(v,(_,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const digest=v=>sha(canonical(v));
@@ -10,6 +11,12 @@ async function fetchOfficial(evidenceDir) {
   fs.mkdirSync(evidenceDir, { recursive: true });
   const bundle = { observedAt: new Date().toISOString(), receipts: {} };
   for (const [name, url] of Object.entries(URLS)) {
+    if (name === 'nvd') {
+      const captured = await captureNvd(evidenceDir);
+      bundle.nvd = captured.data;
+      bundle.receipts.nvd = { url, status: 200, sha256: digest(captured.data), rawSHA256: captured.rawSHA256 };
+      continue;
+    }
     const startedAt = new Date().toISOString();
     let response, size = 0;
     const chunks = [];
