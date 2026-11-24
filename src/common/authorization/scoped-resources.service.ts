@@ -170,19 +170,23 @@ export class ScopedResourcesService {
         organizationId: this.oid(actor.organizationId),
         status: 'active',
       }).lean();
+      // Index this request's scoped memberships once instead of scanning them for each user.
+      const membersByUserId = new Map<string, (typeof members)[number]>();
+      for (const member of members) {
+        const id = member.userId.toString();
+        if (!membersByUserId.has(id)) membersByUserId.set(id, member);
+      }
       const users = await this.connection.models.User.find({
         _id: { $in: members.map((m) => m.userId) },
         status: AccountStatus.ACTIVE,
       })
         .select('_id name email status createdAt updatedAt')
         .lean();
-      return users
-        .filter((u) => u._id.toString() !== actor.id)
-        .map((u) => ({
-          ...u,
-          id: u._id.toString(),
-          roles: members.find((m) => m.userId.toString() === u._id.toString())?.roles,
-        }));
+      return users.flatMap((user) => {
+        const id = user._id.toString();
+        if (id === actor.id) return [];
+        return [{ ...user, id, roles: membersByUserId.get(id)?.roles }];
+      });
     }
     return this.model(resource)
       .find({

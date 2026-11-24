@@ -304,6 +304,60 @@ describe('Device sessions — real MongoDB and HTTP authentication', () => {
     return organization._id.toString();
   }
 
+  it('lists active accounts with fresh membership roles from the selected organization only', async () => {
+    const a = await tenant('List A', [Role.SYSTEM_ADMIN]);
+    const b = await tenant('List B', [Role.SYSTEM_ADMIN]);
+    const account = (suffix: string, status = AccountStatus.ACTIVE) =>
+      users.create({
+        name: `Fixture ${suffix}`,
+        email: `list-${suffix}@example.test`,
+        password: 'not-used-by-this-test',
+        roles: [Role.CUSTOMER],
+        status,
+      });
+    const [shared, foreign, suspended] = await Promise.all([
+      account('shared'),
+      account('foreign'),
+      account('suspended', AccountStatus.SUSPENDED),
+    ]);
+    const grant = (organizationId: string, id: string, role: Role) => ({
+      organizationId,
+      userId: id,
+      status: MembershipStatus.ACTIVE,
+      roles: [role],
+    });
+    await memberships.create([
+      grant(a, shared.id, Role.MANAGER),
+      grant(b, shared.id, Role.AUDITOR),
+      grant(b, foreign.id, Role.CUSTOMER),
+      grant(a, suspended.id, Role.CUSTOMER),
+    ]);
+    const inA = await login('List A', a);
+    const inB = await login('List B', b);
+    const list = (token: string) =>
+      request(app.getHttpServer()).get('/users').auth(token, { type: 'bearer' }).expect(200);
+    const expected = (id: string, role: Role) => expect.objectContaining({ id, roles: [role] });
+    expect((await list(inA.access_token)).body).toEqual([expected(shared.id, Role.MANAGER)]);
+    const listedB = (await list(inB.access_token)).body;
+    expect(listedB).toHaveLength(2);
+    expect(listedB).toEqual(
+      expect.arrayContaining([
+        expected(shared.id, Role.AUDITOR),
+        expected(foreign.id, Role.CUSTOMER),
+      ]),
+    );
+    await memberships.updateOne(
+      { organizationId: a, userId: shared.id },
+      { $set: { roles: [Role.CUSTOMER] } },
+    );
+    expect((await list(inA.access_token)).body).toEqual([expected(shared.id, Role.CUSTOMER)]);
+    await memberships.updateOne(
+      { organizationId: a, userId: shared.id },
+      { $set: { status: MembershipStatus.SUSPENDED } },
+    );
+    expect((await list(inA.access_token)).body).toEqual([]);
+  });
+
   describe('General security audit — persisted events and isolated readers', () => {
     const auditModel = () => connection.models.SecurityAuditRecord as Model<SecurityAuditRecord>;
     const readAudit = (token: string, path = '/audit/own-events') =>

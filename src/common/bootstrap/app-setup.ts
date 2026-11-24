@@ -37,7 +37,10 @@ export function configureApp(
 
   const interceptors = [new ResponseTransformInterceptor()];
 
-  if (process.env.NODE_ENV === 'development') {
+  if (
+    process.env.NODE_ENV === 'development' &&
+    configService.get<string>('DEV_SIMULATE_LATENCY') === 'true'
+  ) {
     interceptors.unshift(new DelayInterceptor(100));
   }
 
