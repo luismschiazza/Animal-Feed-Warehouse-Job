@@ -186,6 +186,40 @@ test('collector timeout simulation has no cached fallback', async () => network(
 test('collector overlimit simulation explicitly retains bounded partial response', async () => network(async () => new Response('x'.repeat(1048577)), async dest => {
   await assert.rejects(fetchOfficial(dest), /official-response-too-large/); assert.equal(fs.statSync(path.join(dest, 'cve.partial-body')).size, 1048576); assert.equal(read(path.join(dest, 'cve.failure.json')).incomplete, true);
 }));
+for (const failure of [null, 'limit', 'body', 'header', 'error']) {
+  test(`collector scopes the Actions token to official GHSA and keeps evidence safe (${failure ?? 'success'})`, async () => {
+    const f = fixture(), names = ['cve', 'nvd', 'ghsa']; let calls = 0;
+    const token = 'ghs_fixtureOnly1234567890';
+    await network(async (url, options) => {
+      const name = names[calls++], headers = new Headers(options.headers);
+      assert.equal(url, f.official.receipts[name].url);
+      assert.equal(options.redirect, 'error');
+      assert.equal(headers.get('authorization'), name === 'ghsa' ? `Bearer ${token}` : null);
+      if (name === 'ghsa') {
+        if (failure === 'limit') return new Response('{"limited":true}', { status: 403, headers: { 'content-type': 'application/json', 'x-ratelimit-remaining': '0' } });
+        if (failure === 'body') return new Response(token);
+        if (failure === 'header') return new Response('{}', { headers: { 'x-reflected': token } });
+        if (failure === 'error') throw Error(`synthetic ${token}`);
+      }
+      return new Response(JSON.stringify(f.official[name]), { headers: { 'content-type': 'application/json' } });
+    }, async dest => {
+      if (!failure) assert.equal((await fetchOfficial(dest, { githubToken: token })).ghsa.ghsa_id, baseline.advisory);
+      else {
+        await assert.rejects(fetchOfficial(dest, { githubToken: token }), failure === 'limit' ? /official-http-failure/ : /ghsa-credential-reflected/);
+        assert.equal(fs.existsSync(path.join(dest, 'bundle.json')), false);
+        if (failure === 'limit') assert.equal(read(path.join(dest, 'ghsa.receipt.json')).status, 403);
+      }
+      assert.equal(calls, 3);
+      for (const file of fs.readdirSync(dest)) assert.ok(!fs.readFileSync(path.join(dest, file)).includes(token));
+    });
+  });
+}
+test('collector rejects a non-installation token before making any request', async () => network(async () => {
+  assert.fail('Unexpected request');
+}, async dest => {
+  await assert.rejects(fetchOfficial(dest, { githubToken: 'ghp_disallowed' }), /invalid-ghsa-credential/);
+  assert.equal(fs.existsSync(dest), false);
+}));
 test('collector success simulation enforces fixed URLs/no redirect and refuses overwrite', async () => {
   const f = fixture(), names = ['cve', 'nvd', 'ghsa']; let n = 0;
   await network(async (url, options) => { const key = names[n++]; assert.equal(url, f.official.receipts[key].url); assert.equal(options.redirect, 'error');

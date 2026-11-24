@@ -35,11 +35,14 @@ jobs:
           docker run --rm --name "$CI_CLIENT" --network none afw-ci-development npm ls --all --json > "$CI_REPORTS/npm-tree.json" 2> "$CI_REPORTS/npm-tree.stderr.log"
           # .github is excluded from the image; provide only this exact checkout's workflow fixture, readonly.
           docker run --rm --name "$CI_CLIENT" --network none --mount "type=bind,source=$GITHUB_WORKSPACE/.github/workflows/security-ci.yml,target=/usr/src/app/.github/workflows/security-ci.yml,readonly" afw-ci-development sh -ec 'node --test scripts/ci/*.test.cjs' > "$CI_REPORTS/audit-policy-tests.log" 2>&1
-      - name: Capture current public CVE, NVD and GHSA records (no credentials)
+      - name: Capture current public CVE, NVD and GHSA records
+        env:
+          # Same-repository PRs only; read-only Actions installation token. Forks remain anonymous.
+          AFW_GHSA_TOKEN: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && github.token || '' }}
         run: |
-          # Only this producer has network access. Offline classification below stays network none.
+          # Pass no credential to other stages. Classification below stays network none.
           # Match the runner UID to write a NEW public-source directory in reports, not application files.
-          docker run --rm --name "$CI_CLIENT" --user "$(id -u):$(id -g)" --mount "type=bind,source=$CI_REPORTS,target=/ci-reports" afw-ci-development node scripts/ci/audit-official-sources.cjs /ci-reports/official > "$CI_REPORTS/official-capture.log" 2>&1
+          docker run --rm --name "$CI_CLIENT" --env AFW_GHSA_TOKEN --user "$(id -u):$(id -g)" --mount "type=bind,source=$CI_REPORTS,target=/ci-reports" afw-ci-development node scripts/ci/audit-official-sources.cjs /ci-reports/official > "$CI_REPORTS/official-capture.log" 2>&1
       - name: Audit production and explicitly classify the owner-approved temporary exact feed discrepancy
         run: |
           # Capture REAL audit statuses; only the reviewed classifier decides whether to continue.
