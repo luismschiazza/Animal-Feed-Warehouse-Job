@@ -19,6 +19,8 @@ import { ProductsModule } from '@/features/products/products.module';
 import { UsersModule } from '@/features/users/users.module';
 import { DatabaseModule } from '@/insfrastructure/database/database.module';
 import { AppController } from './controllers/app.controller';
+import { HealthController } from './operations/health.controller';
+import { OperationsService } from './operations/operations.service';
 import { AppService } from './services/app.service';
 
 @Module({
@@ -47,9 +49,10 @@ import { AppService } from './services/app.service';
     GradesModule,
     SeedModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [
     AppService,
+    OperationsService,
     GenerateJwtSecretCommand,
     SeedCommand,
     ValidateObjectIdPipe,
