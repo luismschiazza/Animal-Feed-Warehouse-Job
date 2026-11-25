@@ -1,0 +1,30 @@
+# API: desempenho pontual — issue #24
+
+Este registro cobre a primeira etapa da [issue #24](https://github.com/luismschiazza/Animal-Feed-Warehouse-Job/issues/24), em 24/11/2026, a partir de `f8472897a6b9b157bb91a58009fa6b1f4a823e8b`. Não certifica o SLO de produção.
+
+## Decisões
+
+- **Latência simulada:** o `DelayInterceptor(100)` já era registrado exclusivamente em `NODE_ENV=development`. O RxJS atrasa a emissão da resposta; isso não injeta 100 ms em todas as falhas, guards ou consultas. O histórico não identifica um requisito para a espera automática e não foi encontrado teste que a exija. O mesmo interceptor permanece disponível com `DEV_SIMULATE_LATENCY=true` em desenvolvimento. A chave é ignorada fora desse ambiente. O default agora evita incluir atraso artificial ao desenvolver ou medir. Envelope, validação e CORS permanecem iguais.
+- **Listagem de contas:** `GET /users` passa por guard/política, `UsersService`, revalidação no serviço de recursos, consultas de usuários/vínculos e `UserDto`. O cruzamento de vínculos era uma busca linear por usuário. O `Map` é local à chamada e usa apenas vínculos ativos lidos para a organização corrente; preserva a primeira ocorrência, os papéis locais e a exclusão da própria conta. Queries, DTO, ordenação original, autorização e auditoria não mudam. Paginação e `$lookup` ficam para estudo separado; não introduzimos cache de permissões ou mudança de API.
+- **Produtos:** controllers/DTOs validam e filtram resposta; o serviço repete validação na fronteira direta. `list` já usa `.lean()`, cursor `_id`, limite + 1 e predicado por organização. `get` mantém consulta final tenant-scoped após autorizar: não reutilizar cegamente o registro da primeira leitura diante de mudanças concorrentes. Escritas verificam o índice único, revalidam a cada callback transacional e completam alteração e auditoria juntas com snapshot/majority. Nenhuma dessas verificações foi removida, cacheada ou paralelizada. Não trocamos Express, não mudamos dependências e não usamos chamadas externas de negócio ou SMTP no ensaio.
+
+## Ensaio isolado
+
+Contêiner Linux development existente com Node 24.22.1, Nest 11.2.8, Mongoose 8.24.7; código dos checkouts montado somente para leitura. MongoDB 8.0.34 em replica set **novo** de nó único, rede `none`, loopback na mesma namespace, sem portas publicadas. Medição com `performance.now()`, aquecimento excluído, concorrência fixa em modelo fechado, com verificação de resultados. Sem rede externa, TLS, instâncias concorrentes da aplicação ou persistência distribuída. Séries são diagnósticas, não benchmark de taxa de chegada independente.
+
+- **HTTP Nest/Express real, rota mínima e `configureApp`:** 160 chamadas por modo, 8 trabalhadores, 24 de aquecimento. Comparação p50/p95/p99 em ms, antes → depois: dev sem flag `102,357 / 107,955 / 112,549` → `5,575 / 8,923 / 17,553`. Repetição p95 `8,675`. Dev opt-in manteve p95 `105,706` → `105,220` (repetição `105,853`). Produção com flag não teve atraso nem antes nem depois: p95 `8,131` → `7,106` / repetição `9,169`. Esses valores de produção não sustentam alegação de ganho.
+- **Consulta + cruzamento de membros:** 1.200 vínculos ativos na organização medida e 100 em outra, com schemas/índices reais; 60 iterações, concorrência 2, 8 aquecimentos. Autorização/auditoria foram substituídas somente na sonda para isolar o trecho; não é latência de `/users`. p50/p95/p99 `429,957 / 452,757 / 655,264` → `20,466 / 39,079 / 45,411` ms, repetição p95 `38,889`. Hash dos resultados idêntico. Em diagnóstico CPU separado com as mesmas linhas Mongo, 100 iterações sequenciais com 10 de aquecimento: p95 `206,968` → `0,730` ms, repetição `0,813`.
+- **Consulta de produtos:** 12.000 documentos sintéticos em dois tenants, página de 51, 100 consultas por cenário, concorrência 4, 24 aquecimentos. `explain('executionStats')`: `organizationId_1__id_1`, sem sort bloqueante, 560 chaves/documentos examinados para retornar 51 em primeira página com arquivados concentrados; 59 para 51 no cursor intermediário. p95 antes `8,553 / 6,031` ms; após `7,278 / 5,716` ms, sem mudança de plano ou de código do produto. Não interpretar a variação como ganho. Se o custo em produção justificar DDL, avaliar razão examinados/retornados em várias distribuições, custo de escrita e rollout operador antes de propor índice parcial.
+
+Os JSONs integrais incluem latências, contagem, CPU/RSS/event-loop do processo medido e `explain`. Harness e resultados locais: `D:/programacao/documentos/issue24-api-performance-20261124/`; não usar os comandos contra Mongo existente. As quantidades sintéticas ajudam a revelar o custo assintótico, não representam o volume real de um cliente.
+
+## Verificação e continuidade
+
+Mantidos os gates do repositório. Executados localmente no Linux: `npm run lint`, `npx --no-install tsc --noEmit --incremental false`, `npm run build`, `npm test -- --runInBand` (377), `npm run test:e2e -- --runInBand` (4), `npm run test:sessions -- --runTestsByPath test/sessions.integration-spec.ts test/products.integration-spec.ts` (145) e `npm run test:abac` (13), todos exit 0. A integração lista a mesma conta com papéis diferentes em dois tenants, exclui a conta suspensa e o ator e reflete mudança de papel e suspensão de vínculo em nova requisição. A PR de desempenho não altera #28/#33: o gate histórico ainda está na base, sem renovar S1/S2. Ainda falta um ensaio sustentado de carga e p95 das rotas críticas reais com segurança/auditoria ativas e topologia documentada antes do aceite geral da issue.
+
+## Referências oficiais
+
+- [NestJS: interceptors](https://docs.nestjs.com/interceptors) e [request lifecycle](https://docs.nestjs.com/faq/request-lifecycle).
+- [Node v24: performance hooks](https://nodejs.org/docs/latest-v24.x/api/perf_hooks.html).
+- [Mongoose 8: lean](https://mongoosejs.com/docs/8.x/docs/tutorials/lean.html).
+- [MongoDB 8: explain](https://www.mongodb.com/docs/v8.0/reference/explain-results/), [índices ESR](https://www.mongodb.com/docs/v8.0/tutorial/equality-sort-range-guideline/) e [transações](https://www.mongodb.com/docs/v8.0/core/transactions/).

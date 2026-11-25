@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AttendanceModelModule } from '@/features/attendance/models/attendance-model.module';
 import { AuthSessionsModule } from '@/features/auth/auth-sessions.module';
 import { DisciplineModelModule } from '@/features/disciplines/models/discipline-model.module';
@@ -13,6 +14,7 @@ import { ScopedResourcesService } from './scoped-resources.service';
 @Global()
 @Module({
   imports: [
+    ConfigModule,
     AuthSessionsModule,
     OrganizationsModule,
     UserModelModule,

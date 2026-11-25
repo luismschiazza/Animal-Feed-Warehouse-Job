@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection, Model, Types } from 'mongoose';
 import { AuthSessionsService } from '@/features/auth/services/auth-sessions.service';
@@ -13,6 +14,7 @@ import {
   PolicyResourceAttributes,
   PolicySubject,
 } from './policy.types';
+import { decodeUsersPageCursor, encodeUsersPageCursor } from './users-page-cursor';
 
 const models: Partial<Record<PolicyResource, string>> = {
   [PolicyResource.PRODUCT]: 'Product',
@@ -36,6 +38,7 @@ export class ScopedResourcesService {
     private readonly organizations: OrganizationAccessService,
     private readonly engine: PolicyEngine,
     private readonly audit: SecurityAuditService,
+    private readonly config: ConfigService,
   ) {}
 
   private model(resource: PolicyResource, authorizationOnly = false): Model<any> {
@@ -169,20 +172,26 @@ export class ScopedResourcesService {
       const members = await this.connection.models.OrganizationMembership.find({
         organizationId: this.oid(actor.organizationId),
         status: 'active',
-      }).lean();
+      })
+        .select('userId roles -_id')
+        .lean();
+      // Index this request's scoped memberships once instead of scanning them for each user.
+      const membersByUserId = new Map<string, (typeof members)[number]>();
+      for (const member of members) {
+        const id = member.userId.toString();
+        if (!membersByUserId.has(id)) membersByUserId.set(id, member);
+      }
       const users = await this.connection.models.User.find({
         _id: { $in: members.map((m) => m.userId) },
         status: AccountStatus.ACTIVE,
       })
         .select('_id name email status createdAt updatedAt')
         .lean();
-      return users
-        .filter((u) => u._id.toString() !== actor.id)
-        .map((u) => ({
-          ...u,
-          id: u._id.toString(),
-          roles: members.find((m) => m.userId.toString() === u._id.toString())?.roles,
-        }));
+      return users.flatMap((user) => {
+        const id = user._id.toString();
+        if (id === actor.id) return [];
+        return [{ ...user, id, roles: membersByUserId.get(id)?.roles }];
+      });
     }
     return this.model(resource)
       .find({
@@ -193,6 +202,61 @@ export class ScopedResourcesService {
       })
       .exec();
   }
+  async listUsersPage(subject: PolicySubject, limit: number, cursor?: string) {
+    const { actor } = await this.authorize(PolicyResource.USER, PolicyAction.LIST, subject);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      throw new BadRequestException('Invalid users page limit');
+
+    const secret = this.config.getOrThrow<string>('JWT_SECRET');
+    const after =
+      cursor === undefined
+        ? undefined
+        : decodeUsersPageCursor(secret, actor.organizationId, actor.id, cursor);
+    const scanLimit = limit * 2;
+    // Include inactive memberships in the scan budget so sparse data cannot extend it.
+    const candidates = await this.connection.models.OrganizationMembership.find({
+      organizationId: this.oid(actor.organizationId),
+      ...(after === undefined ? {} : { userId: { $gt: this.oid(after) } }),
+    })
+      .sort({ userId: 1 })
+      .limit(scanLimit + 1)
+      .select('userId roles status -_id')
+      .lean();
+    const scanned = candidates.slice(0, scanLimit);
+    const ids = scanned
+      .filter((member) => member.status === 'active' && member.userId.toString() !== actor.id)
+      .map((member) => member.userId);
+    const users = ids.length
+      ? await this.connection.models.User.find({
+          _id: { $in: ids },
+          status: AccountStatus.ACTIVE,
+        })
+          .select('_id name email status createdAt updatedAt')
+          .lean()
+      : [];
+
+    const accountsById = new Map(users.map((user) => [user._id.toString(), user]));
+    const items = [];
+    let consumed = 0;
+    for (const member of scanned) {
+      consumed++;
+      const id = member.userId.toString();
+      const account = accountsById.get(id);
+      if (account) items.push({ ...account, id, roles: member.roles });
+      if (items.length === limit) break;
+    }
+    const nextCursor =
+      consumed < candidates.length
+        ? encodeUsersPageCursor(
+            secret,
+            actor.organizationId,
+            actor.id,
+            String(scanned[consumed - 1].userId),
+          )
+        : null;
+    return { items, nextCursor };
+  }
+
   async get(resource: PolicyResource, id: string, subject: PolicySubject) {
     const { actor, row } = await this.authorize(resource, PolicyAction.READ, subject, id);
     if (resource === PolicyResource.USER) return row;
