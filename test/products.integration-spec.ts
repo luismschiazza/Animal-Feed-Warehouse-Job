@@ -704,6 +704,140 @@ describe('Store products — real HTTP, original authentication and two Mongo po
       ).toBe(400);
   });
 
+  const exactSku = (sku: string, token = tokenA) =>
+    http().get('/api/products').query({ sku }).auth(token, { type: 'bearer' });
+
+  it('looks up an exact canonical SKU with existing visibility, pricing and tenant boundaries', async () => {
+    const pa = await post(product({ sku: 'SKU.EXACT-1' }));
+    const pb = await post(
+      product({ sku: 'SKU.EXACT-1', saleUnit: 'kg', priceCents: 640, status: 'discontinued' }),
+      tokenB,
+    );
+    expect(pa.status).toBe(201);
+    expect(pb.status).toBe(201);
+    expect((await post(product({ sku: 'FOREIGN-ONLY' }), tokenB)).status).toBe(201);
+    for (const [token, expected] of [
+      [tokenA, pa.body],
+      [tokenB, pb.body],
+    ] as const) {
+      const response = await exactSku('  sku.Exact-1  ', token);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ items: [expected], nextCursor: null });
+      expect(response.body.items[0]).not.toHaveProperty('organizationId');
+    }
+    expect(pa.body).toMatchObject({ priceCents: 18990, saleUnit: 'unit', status: 'active' });
+    expect(pb.body).toMatchObject({ priceCents: 640, saleUnit: 'kg', status: 'discontinued' });
+    const plan = await model('Product')
+      .findOne({
+        organizationId: a,
+        sku: 'SKU.EXACT-1',
+        ownerId: { $type: 'objectId' },
+        createdBy: { $type: 'objectId' },
+        accessState: { $in: ['active', 'locked'] },
+        archivedAt: null,
+      })
+      .collation({ locale: 'simple' })
+      .explain('executionStats');
+    expect(JSON.stringify(plan.queryPlanner.winningPlan)).toContain('product_org_sku_unique');
+    expect(plan.executionStats).toMatchObject({
+      nReturned: 1,
+      totalKeysExamined: 1,
+      totalDocsExamined: 1,
+    });
+    expect((await archive(pa.body.id)).status).toBe(200);
+    for (const sku of ['sku.exact-1', 'SKU.EXACT', 'FOREIGN-ONLY', 'NONEXISTENT']) {
+      const response = await exactSku(sku);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ items: [], nextCursor: null });
+    }
+    expect((await exactSku('SKU.EXACT-1', tokenB)).body.items).toEqual([pb.body]);
+    expect(await model('Product').countDocuments()).toBe(3);
+  });
+
+  it('rejects malformed SKU and cursor combinations at the HTTP and service boundaries', async () => {
+    for (const query of [
+      'sku=',
+      'sku=%20',
+      'sku=%C3%9F',
+      'sku=A%2AB',
+      'sku=' + 'A'.repeat(65),
+      'sku=A&sku=B',
+      'sku[]=A',
+      'sku[$ne]=A',
+      'sku=A&limit=0',
+      'sku=A&organizationId=' + b,
+      'sku=A&before=' + new Types.ObjectId(),
+    ]) {
+      const response = await http()
+        .get('/api/products?' + query)
+        .auth(tokenA, { type: 'bearer' });
+      expect(response.status).toBe(400);
+      expect(response.body).not.toHaveProperty('items');
+    }
+    const actor = await subject(),
+      service = apps[0].get(ProductsService);
+    for (const invalid of [null, ['A'], { $ne: 'A' }, 123])
+      await expect(service.list({ limit: 25, sku: invalid } as any, actor)).rejects.toMatchObject({
+        status: 400,
+      });
+    await expect(
+      service.list({ limit: 25, sku: 'A', before: new Types.ObjectId().toString() }, actor),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('revalidates catalog permissions and session revocation for the exact SKU path', async () => {
+    expect((await post()).status).toBe(201);
+    expect((await exactSku('RACAO-CAO-15KG')).status).toBe(200);
+    const scope = { userId: uid, organizationId: a };
+    await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['CUSTOMER'] } });
+    expect((await exactSku('RACAO-CAO-15KG')).status).toBe(403);
+    await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['MANAGER'] } });
+    expect((await http().post('/api/auth/logout').auth(tokenA, { type: 'bearer' })).status).toBe(
+      200,
+    );
+    const revoked = await exactSku('RACAO-CAO-15KG');
+    expect(revoked.status).toBe(401);
+    expect(revoked.body).not.toHaveProperty('items');
+  });
+
+  it('fails closed when Mongo rejects list authorization audit without writing SKU or query data', async () => {
+    const sku = 'PRIVATE-LOOKUP-ONLY-441';
+    expect((await post(product({ sku }))).status).toBe(201);
+    const before = await model('Product').find().lean();
+    const validator = {
+      $or: [
+        { event: { $ne: AuditEvent.AUTHORIZATION } },
+        { action: { $ne: 'list' } },
+        { result: { $ne: 'allowed' } },
+      ],
+    };
+    await db.db.command({ collMod: 'security_audit_events', validator, validationLevel: 'strict' });
+    try {
+      const failure = await exactSku(sku);
+      expect(failure.status).toBe(503);
+      expect(failure.body).not.toHaveProperty('items');
+      expect(JSON.stringify(failure.body)).not.toContain(sku);
+      expect(await model('Product').find().lean()).toEqual(before);
+    } finally {
+      await db.db.command({
+        collMod: 'security_audit_events',
+        validator: {},
+        validationLevel: 'strict',
+      });
+    }
+    const recovered = await exactSku(sku);
+    expect(recovered.status).toBe(200);
+    expect(recovered.body.items).toHaveLength(1);
+    for (const response of [recovered, await exactSku(sku + '-MISSING')]) {
+      const events = await model('SecurityAuditRecord')
+        .find({ requestId: response.headers['x-request-id'] })
+        .lean();
+      expect(events.length).toBeGreaterThan(0);
+      expect(JSON.stringify(events)).not.toContain(sku);
+      expect(JSON.stringify(events)).not.toContain('sku=');
+    }
+  });
+
   it('defends direct service callers and blocks the legacy generic CRUD bypass for products', async () => {
     const actor = await subject(),
       service = apps[0].get(ProductsService),

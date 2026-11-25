@@ -18,7 +18,8 @@ Produto usa recurso PRODUCT próprio na política central, modelo/coleção prod
 - status active/discontinued; active padrão. Estado comercial não substitui accessState de autorização.
 - PATCH parcial não vazio, sem null em campos; SKU/saleUnit/metadados de segurança/operadores/campos escolares desconhecidos rejeitados também na service. Texto opcional pode ser esvaziado; remoção de peso opcional não exposta nesta versão.
 - DELETE arquiva (archivedAt), mantém documento/SKU/auditoria para referências futuras. Arquivado some da lista/leitura normal e não pode editar/desarquivar; sem restauração nesta versão. Não apagar/apropriar registros legados sem tenant metadata.
-- Lista por cursor _id descendente, limite padrão25/máximo100, só antes/limit; sem filtros Mongo/tenant/owner arbitrários. Não prometer listagem de catálogo público para CUSTOMER.
+- Lista por cursor `_id` descendente, limite padrão 25/máximo 100, parâmetros `before` e `limit`; sem filtros Mongo/tenant/owner arbitrários. Não prometer listagem de catálogo público para CUSTOMER.
+- Consulta exata interna: `GET /api/products?sku=racao-cao-15kg`. Trim e normalização ASCII/uppercase como no cadastro; retorna `items` com zero ou um produto e `nextCursor: null`. Não combine `sku` e `before` (`400`); `limit` mantém a validação existente. Sem `sku`, a paginação não muda. SKU ausente, arquivado ou somente de outra organização tem a mesma lista vazia. Produtos descontinuados não arquivados preservam seu status; a consulta não indica disponibilidade de estoque. Usa a política de listagem e o índice único local ao tenant; não registra SKU ou query bruta na trilha de segurança.
 - Sem estoque editável, lote, validade, fornecedor, venda, custo/margem/impostos/desconto ou migração de dados: exigem modelos/regras próprios. Catálogo de produtos ≠ inventário.
 
 ## Segurança, permissões e atomicidade
