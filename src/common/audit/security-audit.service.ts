@@ -2,6 +2,7 @@ import {
   BadRequestException,
   HttpException,
   Injectable,
+  Logger,
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -32,6 +33,8 @@ const identifier = (value: unknown) =>
 
 @Injectable()
 export class SecurityAuditService implements OnModuleInit {
+  private readonly logger = new Logger(SecurityAuditService.name);
+
   constructor(
     @InjectModel(SecurityAuditRecord.name) private readonly records: Model<SecurityAuditRecord>,
     private readonly context: AuditContext,
@@ -93,6 +96,8 @@ export class SecurityAuditService implements OnModuleInit {
       if (session) await this.records.create([row], { session });
       else await this.records.create([row], { writeConcern: { w: 'majority', j: true } });
     } catch {
+      // External alert signal when the database cannot record its own failure.
+      this.logger.error('security_audit_write_failed');
       throw new ServiceUnavailableException('Security audit unavailable');
     }
   }
