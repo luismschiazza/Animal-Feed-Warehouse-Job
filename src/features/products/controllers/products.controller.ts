@@ -11,7 +11,7 @@ import {
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiQuery } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
 import { RequirePolicies } from '@/common/authorization/policy.decorators';
 import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
@@ -49,6 +49,12 @@ export class ProductsController {
   @Get()
   @RequirePolicies({ action: PolicyAction.LIST, resource: PolicyResource.PRODUCT })
   @ApiOkResponse({ description: 'Bounded product page: items and nextCursor' })
+  @ApiQuery({
+    name: 'sku',
+    required: false,
+    type: String,
+    description: 'Exact SKU; cannot be combined with before',
+  })
   async list(@Request() req, @Query() query: ListProductsDto) {
     const page = await this.products.list(query, req.user);
     return { items: page.items.map((row) => this.view(row)), nextCursor: page.nextCursor };
