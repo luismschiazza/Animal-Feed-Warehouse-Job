@@ -174,19 +174,23 @@ export class ProductsService {
 
   list(raw: ListProductsDto, subject: PolicySubject) {
     return this.execute(PolicyAction.LIST, subject, undefined, async (actor) => {
-      const query = this.data(ListProductsDto, raw, ['limit', 'before', 'sku']);
+      const query = this.data(ListProductsDto, raw, ['limit', 'before', 'sku', 'status']);
+      const scope = {
+        ...this.scope(actor),
+        ...(query.status === undefined ? {} : { status: query.status }),
+      };
       if (query.sku !== undefined) {
         if (query.before !== undefined)
           throw new BadRequestException('SKU cannot be combined with before');
         const product = await this.products
-          .findOne({ ...this.scope(actor), sku: query.sku.toUpperCase() })
+          .findOne({ ...scope, sku: query.sku.toUpperCase() })
           .collation({ locale: 'simple' })
           .lean();
         return { items: product ? [product] : [], nextCursor: null };
       }
       const rows = await this.products
         .find({
-          ...this.scope(actor),
+          ...scope,
           ...(query.before ? { _id: { $lt: new Types.ObjectId(query.before) } } : {}),
         })
         .sort({ _id: -1 })

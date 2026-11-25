@@ -17,7 +17,7 @@ import { RequirePolicies } from '@/common/authorization/policy.decorators';
 import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
 import { ProductDto } from '../dtos/response/product.dto';
-import { CreateProductDto } from '../dtos/validation/create-product.dto';
+import { CreateProductDto, ProductStatus } from '../dtos/validation/create-product.dto';
 import { ListProductsDto } from '../dtos/validation/list-products.dto';
 import { UpdateProductDto } from '../dtos/validation/update-product.dto';
 import { ProductsService } from '../services/products.service';
@@ -54,6 +54,12 @@ export class ProductsController {
     required: false,
     type: String,
     description: 'Exact SKU; cannot be combined with before',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ProductStatus,
+    description: 'Commercial status of non-archived products; not stock availability',
   })
   async list(@Request() req, @Query() query: ListProductsDto) {
     const page = await this.products.list(query, req.user);
