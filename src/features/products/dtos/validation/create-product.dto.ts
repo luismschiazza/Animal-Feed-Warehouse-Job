@@ -10,6 +10,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { PRODUCT_SKU_PATTERN, trimProductText as trim } from './product-sku';
 
 export enum ProductCategory {
   FEED = 'feed',
@@ -37,10 +38,9 @@ export enum ProductStatus {
   ACTIVE = 'active',
   DISCONTINUED = 'discontinued',
 }
-const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
 export class CreateProductDto {
-  @Transform(trim) @IsString() @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/) sku: string;
+  @Transform(trim) @IsString() @Matches(PRODUCT_SKU_PATTERN) sku: string;
   @Transform(trim) @IsString() @IsNotEmpty() @MaxLength(160) name: string;
   @ValidateIf((_o, value) => value !== undefined)
   @Transform(trim)
