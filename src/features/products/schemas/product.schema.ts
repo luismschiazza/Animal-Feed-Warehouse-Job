@@ -47,6 +47,8 @@ export class Product {
   })
   status: ProductStatus;
   @Prop({ type: Date, default: null }) archivedAt: Date | null;
+  // Internal transactional write guard; never part of product input or response.
+  @Prop({ type: Types.ObjectId, select: false }) lastStockReceiptId?: Types.ObjectId;
 }
 export const ProductSchema = SchemaFactory.createForClass(Product);
 addTenantFields(ProductSchema);
