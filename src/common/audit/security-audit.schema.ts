@@ -5,6 +5,7 @@ import { Role } from '../enums/role.enum';
 export enum AuditEvent {
   DEMO_PROVISION = 'demo_provision',
   PRODUCT = 'product_operation',
+  STOCK_LOCATION = 'stock_location_operation',
   SESSION_ADMISSION = 'session_admission',
   REPLACEMENT_START = 'session_replacement_start',
   REPLACEMENT_LIST = 'session_replacement_list',

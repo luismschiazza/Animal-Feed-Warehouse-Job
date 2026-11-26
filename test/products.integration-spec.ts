@@ -20,6 +20,8 @@ import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit
 import { TargetSpecies } from '@/features/products/dtos/validation/create-product.dto';
 import { ProductsModule } from '@/features/products/products.module';
 import { ProductsService } from '@/features/products/services/products.service';
+import { StockLocationsModule } from '@/features/stock-locations/stock-locations.module';
+import { StockLocationsService } from '@/features/stock-locations/stock-locations.service';
 
 describe('Store products — real HTTP, original authentication and two Mongo pools', () => {
   const database = `products_test_${randomUUID().replace(/-/g, '')}`;
@@ -103,6 +105,7 @@ describe('Store products — real HTTP, original authentication and two Mongo po
         AuthModule,
         AuthorizationModule,
         ProductsModule,
+        StockLocationsModule,
       ],
     }).compile();
     const connection = module.get<Connection>(getConnectionToken());
@@ -146,6 +149,7 @@ describe('Store products — real HTTP, original authentication and two Mongo po
   beforeEach(async () => {
     for (const name of [
       'Product',
+      'StockLocation',
       'AuthSession',
       'SessionRevocation',
       'SessionLimitRevision',
@@ -184,6 +188,170 @@ describe('Store products — real HTTP, original authentication and two Mongo po
   afterAll(async () => {
     if (db?.name === database) await db.dropDatabase();
     for (const app of apps ?? []) await app.close();
+  });
+
+  describe('stock location directory', () => {
+    const endpoint = '/api/stock-locations';
+    const create = (data: object, token = tokenA, pool = 0) =>
+      http(pool).post(endpoint).auth(token, { type: 'bearer' }).send(data);
+    const list = (query = '', token = tokenA) =>
+      http()
+        .get(endpoint + query)
+        .auth(token, { type: 'bearer' });
+    const depot = { code: ' deposito ', name: ' Depósito ' };
+    const completion = { event: AuditEvent.STOCK_LOCATION, result: 'allowed' };
+
+    it('normalizes code, enforces concurrent uniqueness across pools, and paginates only the current organization', async () => {
+      const pair = await Promise.all([
+        create(depot),
+        create({ ...depot, code: 'DEPOSITO' }, tokenA, 1),
+      ]);
+      expect(pair.map((r) => r.status).sort()).toEqual([201, 409]);
+      const winner = pair.find((r) => r.status === 201);
+      expect(winner.body).toEqual({
+        id: expect.any(String),
+        code: 'DEPOSITO',
+        name: 'Depósito',
+        status: 'active',
+      });
+      expect(JSON.stringify(pair.find((r) => r.status === 409).body)).not.toMatch(
+        /DEPOSITO|E11000|keyValue/,
+      );
+      expect(await model('SecurityAuditRecord').countDocuments(completion)).toBe(1);
+      const other = await create({ ...depot, name: 'Somente B' }, tokenB);
+      const counter = await create({ ...depot, code: 'BALCAO' });
+      const third = await create({ ...depot, code: 'ANEXO-3' });
+      for (const r of [other, counter, third]) expect(r.status).toBe(201);
+      const page = await list('?limit=2');
+      expect(page.status).toBe(200);
+      expect(page.body).toEqual({ items: [third.body, counter.body], nextCursor: counter.body.id });
+      const tail = await list('?limit=2&before=' + page.body.nextCursor);
+      expect(tail.status).toBe(200);
+      expect(tail.body).toEqual({ items: [winner.body], nextCursor: null });
+      expect((await list('', tokenB)).body).toEqual({ items: [other.body], nextCursor: null });
+      expect(await model('Product').countDocuments()).toBe(0);
+    });
+
+    it('validates create and list at HTTP and service boundaries and has no mutation routes', async () => {
+      for (const data of [
+        {},
+        { ...depot, code: 'ß' },
+        { ...depot, code: 'a'.repeat(33) },
+        { ...depot, code: { value: 'ANY' } },
+        { ...depot, code: ['DEPOSITO'] },
+        { ...depot, name: '   ' },
+        { ...depot, name: 'a\nb' },
+        { ...depot, name: 'a'.repeat(121) },
+        { ...depot, name: null },
+        { ...depot, status: 'inactive' },
+        { ...depot, organizationId: b.toString() },
+        { ...depot, quantity: 50 },
+      ])
+        expect((await create(data)).status).toBe(400);
+      for (const query of [
+        '?limit=0',
+        '?limit=101',
+        '?limit=2&limit=3',
+        '?limit=1e1',
+        '?before=bad',
+        '?organizationId=' + b,
+      ])
+        expect((await list(query)).status).toBe(400);
+      const service = apps[0].get(StockLocationsService),
+        actor = await subject();
+      for (const raw of [
+        { ...depot, organizationId: b.toString() },
+        { ...depot, code: 42 },
+      ])
+        await expect(service.create(raw as any, actor)).rejects.toMatchObject({ status: 400 });
+      await expect(service.list({ before: null } as any, actor)).rejects.toMatchObject({
+        status: 400,
+      });
+      expect(
+        (
+          await http()
+            .patch(endpoint + '/' + new Types.ObjectId())
+            .auth(tokenA, { type: 'bearer' })
+            .send({ status: 'inactive' })
+        ).status,
+      ).toBe(404);
+      expect(await model('StockLocation').countDocuments()).toBe(0);
+    });
+
+    it('revalidates permissions and revoked sessions, without granting implicit administrator access', async () => {
+      expect((await create(depot)).status).toBe(201);
+      const scope = { userId: uid, organizationId: a };
+      for (const [role, canList, canCreate] of [
+        ['ORGANIZATION_OWNER', true, true],
+        ['INVENTORY_OPERATOR', true, false],
+        ['CUSTOMER', false, false],
+        ['SYSTEM_ADMIN', false, false],
+      ] as const) {
+        await model('OrganizationMembership').updateOne(scope, { $set: { roles: [role] } });
+        const r = await list();
+        expect(r.status).toBe(canList ? 200 : 403);
+        if (!canList) expect(r.body).not.toHaveProperty('items');
+        expect((await create({ ...depot, code: 'ROLE-' + role })).status).toBe(
+          canCreate ? 201 : 403,
+        );
+      }
+      await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['MANAGER'] } });
+      expect((await http().post('/api/auth/logout').auth(tokenA, { type: 'bearer' })).status).toBe(
+        200,
+      );
+      expect((await list()).status).toBe(401);
+      expect((await create({ ...depot, code: 'REVOKED' })).status).toBe(401);
+      expect((await list('', tokenB)).status).toBe(200);
+      expect(await model('StockLocation').countDocuments()).toBe(2);
+    });
+
+    it('fails closed on missing index and journal failures, then recovers without partial location or audit data', async () => {
+      const store = model('StockLocation');
+      await store.collection.dropIndex('stock_location_org_code_unique');
+      try {
+        expect((await create(depot)).status).toBe(503);
+        expect(await store.countDocuments()).toBe(0);
+      } finally {
+        await store.createIndexes();
+      }
+      const validator = {
+        $nor: [
+          completion,
+          {
+            event: AuditEvent.AUTHORIZATION,
+            resource: PolicyResource.STOCK_LOCATION,
+            action: 'list',
+            result: 'allowed',
+          },
+        ],
+      };
+      await db.db.command({
+        collMod: 'security_audit_events',
+        validator,
+        validationLevel: 'strict',
+      });
+      try {
+        expect((await create(depot)).status).toBe(503);
+        expect(await store.countDocuments()).toBe(0);
+        expect(await model('SecurityAuditRecord').countDocuments(completion)).toBe(0);
+        const denied = await list();
+        expect(denied.status).toBe(503);
+        expect(denied.body).not.toHaveProperty('items');
+      } finally {
+        await db.db.command({
+          collMod: 'security_audit_events',
+          validator: {},
+          validationLevel: 'strict',
+        });
+      }
+      const result = await create(depot);
+      expect(result.status).toBe(201);
+      expect((await list()).body).toEqual({ items: [result.body], nextCursor: null });
+      const events = await model('SecurityAuditRecord').find(completion).lean();
+      expect(events).toHaveLength(1);
+      expect(events[0].targetId).toBe(result.body.id);
+      expect(JSON.stringify(events)).not.toMatch(/DEPOSITO|Depósito/);
+    });
   });
 
   it('creates, reads, lists, updates and ARCHIVES a real feed product without exposing authority metadata', async () => {

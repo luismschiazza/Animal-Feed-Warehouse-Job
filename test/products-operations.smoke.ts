@@ -14,6 +14,7 @@ import { AuthorizationModule } from '@/common/authorization/authorization.module
 import { AuthModule } from '@/features/auth/auth.module';
 import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit-revision.schema';
 import { ProductsModule } from '@/features/products/products.module';
+import { StockLocationsModule } from '@/features/stock-locations/stock-locations.module';
 
 async function mustDeny(operation: () => Promise<unknown>) {
   await assert.rejects(operation, (error: { code?: number }) => error.code === 13);
@@ -42,6 +43,7 @@ async function main() {
         AuthModule,
         AuthorizationModule,
         ProductsModule,
+        StockLocationsModule,
       ],
     }).compile();
   const operator = await moduleFor(selected.toString());
@@ -88,6 +90,7 @@ async function main() {
         resource('session_serialization', ['find', 'update', 'listIndexes']),
         resource('session_replacement_challenges', ['find', 'insert', 'update', 'listIndexes']),
         resource('products', ['find', 'insert', 'update', 'listIndexes']),
+        resource('stocklocations', ['find', 'insert', 'listIndexes']),
       ],
     });
     const runtimePassword = randomBytes(32).toString('hex');
@@ -162,6 +165,31 @@ async function main() {
       writer.models.SecurityAuditRecord.collection.updateOne({}, { $set: { result: 'denied' } }),
     );
     await mustDeny(() => writer.models.SecurityAuditRecord.collection.deleteMany({}));
+    const location = await http()
+      .post('/api/stock-locations')
+      .auth(token, { type: 'bearer' })
+      .send({ code: 'balcao', name: 'Balcão' });
+    assert.equal(location.status, 201);
+    const listed = await http().get('/api/stock-locations').auth(token, { type: 'bearer' });
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body, { items: [location.body], nextCursor: null });
+    assert.equal(
+      await admin.models.SecurityAuditRecord.countDocuments({
+        event: AuditEvent.STOCK_LOCATION,
+        result: 'allowed',
+        targetId: location.body.id,
+      }),
+      1,
+    );
+    const locations = writer.models.StockLocation.collection;
+    await mustDeny(() => locations.updateOne({}, { $set: { status: 'inactive' } }));
+    await mustDeny(() => locations.deleteMany({}));
+    await mustDeny(() => locations.dropIndex('stock_location_org_code_unique'));
+    await mustDeny(() => locations.createIndex({ name: 1 }));
+    assert.equal(await admin.models.StockLocation.countDocuments(), 1);
+    console.info(
+      'PASS stock location HTTP create/list with restricted Mongo runtime; update/delete/DDL denied.',
+    );
     assert.equal(await admin.models.Product.countDocuments(), 1);
     console.info(
       'PASS products HTTP CRUD + atomic completion events with restricted authenticated runtime; product delete/DDL and audit update/delete denied.',
