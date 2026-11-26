@@ -754,6 +754,92 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     expect(await model('Product').countDocuments()).toBe(3);
   });
 
+  const listWithQuery = (query: string, token = tokenA) =>
+    http()
+      .get('/api/products?' + query)
+      .auth(token, { type: 'bearer' });
+
+  it('filters each commercial status before paginating without exposing foreign or archived products', async () => {
+    const first = await post(product({ sku: 'ACTIVE-ONE' }));
+    const middle = await post(product({ sku: 'DISCONTINUED', status: 'discontinued' }));
+    const last = await post(product({ sku: 'ACTIVE-TWO', status: 'active' }));
+    const archived = await post(product({ sku: 'ARCHIVED', status: 'discontinued' }));
+    const foreign = await post(product({ sku: 'FOREIGN', status: 'discontinued' }), tokenB);
+    for (const response of [first, middle, last, archived, foreign])
+      expect(response.status).toBe(201);
+    expect(first.body.status).toBe('active');
+    expect((await archive(archived.body.id)).status).toBe(200);
+
+    const active = await listWithQuery('status=active&limit=1');
+    expect(active.status).toBe(200);
+    expect(active.body).toEqual({ items: [last.body], nextCursor: last.body.id });
+    const tail = await listWithQuery('status=active&limit=1&before=' + active.body.nextCursor);
+    expect(tail.status).toBe(200);
+    expect(tail.body).toEqual({ items: [first.body], nextCursor: null });
+
+    for (const [token, expected] of [
+      [tokenA, middle.body],
+      [tokenB, foreign.body],
+    ]) {
+      const discontinued = await listWithQuery('status=discontinued', token);
+      expect(discontinued.status).toBe(200);
+      expect(discontinued.body).toEqual({ items: [expected], nextCursor: null });
+    }
+    const unfiltered = await listWithQuery('limit=3');
+    expect(unfiltered.status).toBe(200);
+    expect(unfiltered.body).toEqual({
+      items: [last.body, middle.body, first.body],
+      nextCursor: null,
+    });
+  });
+
+  it('intersects commercial status with exact SKU without changing the singleton contract', async () => {
+    const pa = await post(product({ sku: 'MIXED' }));
+    const pb = await post(product({ sku: 'MIXED', status: 'discontinued' }), tokenB);
+    expect(pa.status).toBe(201);
+    expect(pb.status).toBe(201);
+    for (const [token, status, expected] of [
+      [tokenA, 'active', [pa.body]],
+      [tokenA, 'discontinued', []],
+      [tokenB, 'active', []],
+      [tokenB, 'discontinued', [pb.body]],
+    ] as const) {
+      const response = await listWithQuery('sku=%20mixed%20&limit=1&status=' + status, token);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ items: expected, nextCursor: null });
+    }
+    expect((await archive(pa.body.id)).status).toBe(200);
+    const archived = await listWithQuery('sku=MIXED&status=active');
+    expect(archived.status).toBe(200);
+    expect(archived.body).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('rejects invalid commercial status and invalid pagination combinations', async () => {
+    for (const query of [
+      'status=',
+      'status=null',
+      'status=ACTIVE',
+      'status=active%20',
+      'status=archived',
+      'status=active&status=active',
+      'status[]=active',
+      'status=active&limit=101',
+      'status=active&sku=A&limit=0',
+      'status=active&before=invalid',
+      'status=active&sku=A&before=' + new Types.ObjectId(),
+    ]) {
+      const response = await listWithQuery(query);
+      expect(response.status).toBe(400);
+      expect(response.body).not.toHaveProperty('items');
+    }
+    const actor = await subject(),
+      service = apps[0].get(ProductsService);
+    for (const status of [null, false, 1, ['active'], {}, 'archived'])
+      await expect(service.list({ limit: 25, status } as any, actor)).rejects.toMatchObject({
+        status: 400,
+      });
+  });
+
   it('rejects malformed SKU and cursor combinations at the HTTP and service boundaries', async () => {
     for (const query of [
       'sku=',
@@ -788,9 +874,11 @@ describe('Store products — real HTTP, original authentication and two Mongo po
   it('revalidates catalog permissions and session revocation for the exact SKU path', async () => {
     expect((await post()).status).toBe(201);
     expect((await exactSku('RACAO-CAO-15KG')).status).toBe(200);
+    expect((await listWithQuery('status=active')).status).toBe(200);
     const scope = { userId: uid, organizationId: a };
     await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['CUSTOMER'] } });
     expect((await exactSku('RACAO-CAO-15KG')).status).toBe(403);
+    expect((await listWithQuery('status=active')).status).toBe(403);
     await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['MANAGER'] } });
     expect((await http().post('/api/auth/logout').auth(tokenA, { type: 'bearer' })).status).toBe(
       200,
@@ -798,6 +886,7 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     const revoked = await exactSku('RACAO-CAO-15KG');
     expect(revoked.status).toBe(401);
     expect(revoked.body).not.toHaveProperty('items');
+    expect((await listWithQuery('status=active')).status).toBe(401);
   });
 
   it('fails closed when Mongo rejects list authorization audit without writing SKU or query data', async () => {
@@ -813,10 +902,15 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     };
     await db.db.command({ collMod: 'security_audit_events', validator, validationLevel: 'strict' });
     try {
-      const failure = await exactSku(sku);
-      expect(failure.status).toBe(503);
-      expect(failure.body).not.toHaveProperty('items');
-      expect(JSON.stringify(failure.body)).not.toContain(sku);
+      for (const failure of [
+        await exactSku(sku),
+        await listWithQuery('status=active'),
+        await listWithQuery('status=active&sku=' + sku),
+      ]) {
+        expect(failure.status).toBe(503);
+        expect(failure.body).not.toHaveProperty('items');
+        expect(JSON.stringify(failure.body)).not.toContain(sku);
+      }
       expect(await model('Product').find().lean()).toEqual(before);
     } finally {
       await db.db.command({
@@ -828,13 +922,17 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     const recovered = await exactSku(sku);
     expect(recovered.status).toBe(200);
     expect(recovered.body.items).toHaveLength(1);
-    for (const response of [recovered, await exactSku(sku + '-MISSING')]) {
+    const filtered = await listWithQuery('status=active&sku=' + sku);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body).toEqual(recovered.body);
+    for (const response of [recovered, filtered, await exactSku(sku + '-MISSING')]) {
       const events = await model('SecurityAuditRecord')
         .find({ requestId: response.headers['x-request-id'] })
         .lean();
       expect(events.length).toBeGreaterThan(0);
       expect(JSON.stringify(events)).not.toContain(sku);
       expect(JSON.stringify(events)).not.toContain('sku=');
+      expect(JSON.stringify(events)).not.toContain('status=');
     }
   });
 
