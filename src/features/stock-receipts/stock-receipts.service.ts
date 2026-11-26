@@ -303,7 +303,14 @@ export class StockReceiptsService {
             $facet: {
               rows: subset,
               total: [
-                { $group: { _id: null, quantity: { $sum: { $toDecimal: '$quantity' } } } },
+                // Stored quantities are bounded safe integers; convert to an integer BSON
+                // representation before summing so Decimal128 keeps zero fractional scale.
+                {
+                  $group: {
+                    _id: null,
+                    quantity: { $sum: { $toDecimal: { $toLong: '$quantity' } } },
+                  },
+                },
                 { $project: { quantity: { $toString: '$quantity' } } },
               ],
             },

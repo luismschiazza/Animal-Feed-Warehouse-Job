@@ -394,9 +394,15 @@ describe('Store products — real HTTP, original authentication and two Mongo po
       expect((await receive(dto, randomUUID())).status).toBe(409);
       expect((await balance(dto.productId)).body.total).toBe('999999999999');
       expect(await model('StockReceipt').countDocuments()).toBe(0);
+      const atLimit = await Promise.all([
+        receive({ ...dto, quantity: 1 }, randomUUID()),
+        receive({ ...dto, quantity: 1 }, randomUUID(), tokenA, 1),
+      ]);
+      expect(atLimit.map((r) => r.status).sort()).toEqual([201, 409]);
+      expect(await model('StockReceipt').countDocuments()).toBe(1);
       expect((await archive(dto.productId)).status).toBe(200);
       expect((await receive(dto, randomUUID())).status).toBe(404);
-      expect((await balance(dto.productId)).body.total).toBe('999999999999');
+      expect((await balance(dto.productId)).body.total).toBe('1000000000000');
     });
 
     it('rechecks role/session and denies lookup/replay after loss of entitlement', async () => {
