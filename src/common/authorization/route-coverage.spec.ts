@@ -15,6 +15,7 @@ import { GradesController } from '@/features/grades/controllers/grades.controlle
 import { MeetingsController } from '@/features/meeting/controllers/meeting.controller';
 import { ProductsController } from '@/features/products/controllers/products.controller';
 import { StockLocationsController } from '@/features/stock-locations/stock-locations.module';
+import { StockReceiptsController } from '@/features/stock-receipts/stock-receipts.module';
 import { UsersController } from '@/features/users/controllers/users.controller';
 import { POLICIES_KEY, PUBLIC_ROUTE_KEY } from './policy.decorators';
 import { POLICY_DEFINITIONS } from './policy.registry';
@@ -23,6 +24,7 @@ import { PolicyRequirement } from './policy.types';
 const controllers = [
   ProductsController,
   StockLocationsController,
+  StockReceiptsController,
   SessionReplacementController,
   SessionLimitConfigurationController,
   AppController,

@@ -15,6 +15,7 @@ import { AuthModule } from '@/features/auth/auth.module';
 import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit-revision.schema';
 import { ProductsModule } from '@/features/products/products.module';
 import { StockLocationsModule } from '@/features/stock-locations/stock-locations.module';
+import { StockReceiptsModule } from '@/features/stock-receipts/stock-receipts.module';
 
 async function mustDeny(operation: () => Promise<unknown>) {
   await assert.rejects(operation, (error: { code?: number }) => error.code === 13);
@@ -36,7 +37,12 @@ async function main() {
           isGlobal: true,
           ignoreEnvFile: true,
           ignoreEnvVars: true,
-          load: [() => ({ JWT_SECRET: 'disposable-products-operations-secret' })],
+          load: [
+            () => ({
+              JWT_SECRET: 'disposable-products-operations-secret',
+              STOCK_RECEIPTS_SYNTHETIC: 'true',
+            }),
+          ],
         }),
         MongooseModule.forRoot(uri, { dbName: database, autoCreate: false, autoIndex: false }),
         EventEmitterModule.forRoot(),
@@ -44,6 +50,7 @@ async function main() {
         AuthorizationModule,
         ProductsModule,
         StockLocationsModule,
+        StockReceiptsModule,
       ],
     }).compile();
   const operator = await moduleFor(selected.toString());
@@ -91,6 +98,8 @@ async function main() {
         resource('session_replacement_challenges', ['find', 'insert', 'update', 'listIndexes']),
         resource('products', ['find', 'insert', 'update', 'listIndexes']),
         resource('stocklocations', ['find', 'insert', 'listIndexes']),
+        resource('stockreceipts', ['find', 'insert', 'listIndexes']),
+        resource('stockbalances', ['find', 'insert', 'update', 'listIndexes']),
       ],
     });
     const runtimePassword = randomBytes(32).toString('hex');
@@ -191,6 +200,57 @@ async function main() {
       'PASS stock location HTTP create/list with restricted Mongo runtime; update/delete/DDL denied.',
     );
     assert.equal(await admin.models.Product.countDocuments(), 1);
+    const bulk = await http().post('/api/products').auth(token, { type: 'bearer' }).send({
+      sku: 'ACL-BULK',
+      name: 'Synthetic bulk',
+      category: 'feed',
+      targetSpecies: 'dog',
+      saleUnit: 'kg',
+      priceCents: 1000,
+    });
+    assert.equal(bulk.status, 201);
+    const intent = randomUUID();
+    const received = await http()
+      .post('/api/stock-receipts')
+      .auth(token, { type: 'bearer' })
+      .set('Idempotency-Key', intent)
+      .send({
+        productId: bulk.body.id,
+        locationId: location.body.id,
+        quantity: 2350,
+      });
+    assert.equal(received.status, 201);
+    const lookup = await http()
+      .get('/api/stock-receipts/by-intent')
+      .auth(token, { type: 'bearer' })
+      .set('Idempotency-Key', intent);
+    assert.equal(lookup.status, 200);
+    assert.deepEqual(lookup.body, received.body);
+    const physical = await http()
+      .get('/api/stock-balances?productId=' + bulk.body.id)
+      .auth(token, { type: 'bearer' });
+    assert.equal(physical.status, 200);
+    assert.equal(physical.body.total, '2350');
+    assert.equal(
+      await admin.models.SecurityAuditRecord.countDocuments({
+        event: AuditEvent.STOCK_RECEIPT,
+        result: 'allowed',
+        targetId: received.body.id,
+      }),
+      1,
+    );
+    await mustDeny(() =>
+      writer.models.StockReceipt.collection.updateOne({}, { $set: { quantity: 1 } }),
+    );
+    await mustDeny(() => writer.models.StockReceipt.collection.deleteMany({}));
+    await mustDeny(() => writer.models.StockBalance.collection.deleteMany({}));
+    await mustDeny(() =>
+      writer.models.StockReceipt.collection.dropIndex('stock_receipt_org_actor_intent'),
+    );
+    await mustDeny(() => writer.models.StockBalance.collection.createIndex({ quantity: 1 }));
+    console.info(
+      'PASS synthetic stock receipt/lookup/balance under restricted Mongo ACL; ledger mutation, delete and DDL denied.',
+    );
     console.info(
       'PASS products HTTP CRUD + atomic completion events with restricted authenticated runtime; product delete/DDL and audit update/delete denied.',
     );

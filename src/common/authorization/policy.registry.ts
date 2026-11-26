@@ -59,6 +59,15 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
     ],
     condition: scopedResource,
   })),
+  ...[
+    { resource: PolicyResource.STOCK_RECEIPT, action: PolicyAction.CREATE },
+    { resource: PolicyResource.STOCK_RECEIPT, action: PolicyAction.LIST },
+    { resource: PolicyResource.STOCK_BALANCE, action: PolicyAction.LIST },
+  ].map((policy) => ({
+    ...policy,
+    roles: [Role.ORGANIZATION_OWNER, Role.MANAGER, Role.INVENTORY_OPERATOR],
+    condition: scopedResource,
+  })),
   ...[PolicyAction.READ, PolicyAction.UPDATE].map((action) => ({
     resource: PolicyResource.SESSION_LIMIT_CONFIGURATION,
     action,

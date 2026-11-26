@@ -1,5 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -22,6 +22,8 @@ import { ProductsModule } from '@/features/products/products.module';
 import { ProductsService } from '@/features/products/services/products.service';
 import { StockLocationsModule } from '@/features/stock-locations/stock-locations.module';
 import { StockLocationsService } from '@/features/stock-locations/stock-locations.service';
+import { StockReceiptsModule } from '@/features/stock-receipts/stock-receipts.module';
+import { StockReceiptsService } from '@/features/stock-receipts/stock-receipts.service';
 
 describe('Store products — real HTTP, original authentication and two Mongo pools', () => {
   const database = `products_test_${randomUUID().replace(/-/g, '')}`;
@@ -93,7 +95,12 @@ describe('Store products — real HTTP, original authentication and two Mongo po
           isGlobal: true,
           ignoreEnvFile: true,
           ignoreEnvVars: true,
-          load: [() => ({ JWT_SECRET: 'disposable-product-jwt-secret' })],
+          load: [
+            () => ({
+              JWT_SECRET: 'disposable-product-jwt-secret',
+              STOCK_RECEIPTS_SYNTHETIC: 'true',
+            }),
+          ],
         }),
         MongooseModule.forRoot(uri, {
           dbName: database,
@@ -106,6 +113,7 @@ describe('Store products — real HTTP, original authentication and two Mongo po
         AuthorizationModule,
         ProductsModule,
         StockLocationsModule,
+        StockReceiptsModule,
       ],
     }).compile();
     const connection = module.get<Connection>(getConnectionToken());
@@ -150,6 +158,8 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     for (const name of [
       'Product',
       'StockLocation',
+      'StockReceipt',
+      'StockBalance',
       'AuthSession',
       'SessionRevocation',
       'SessionLimitRevision',
@@ -188,6 +198,368 @@ describe('Store products — real HTTP, original authentication and two Mongo po
   afterAll(async () => {
     if (db?.name === database) await db.dropDatabase();
     for (const app of apps ?? []) await app.close();
+  });
+
+  describe('synthetic stock receipts', () => {
+    const endpoint = '/api/stock-receipts';
+    const receive = (dto: object, key: string, token = tokenA, pool = 0) =>
+      http(pool)
+        .post(endpoint)
+        .auth(token, { type: 'bearer' })
+        .set('Idempotency-Key', key)
+        .send(dto);
+    const intent = (key: string, token = tokenA) =>
+      http()
+        .get(endpoint + '/by-intent')
+        .auth(token, { type: 'bearer' })
+        .set('Idempotency-Key', key);
+    const balance = (productId: string, query = '', token = tokenA) =>
+      http()
+        .get('/api/stock-balances?productId=' + productId + query)
+        .auth(token, { type: 'bearer' });
+    const completion = { event: AuditEvent.STOCK_RECEIPT, result: 'allowed' };
+    const scope = () => ({ userId: uid, organizationId: a });
+    const prepare = async (token = tokenA, bulk = false, suffix = '') => {
+      const p = await post(
+        product({
+          sku: 'SKU-' + (bulk ? 'BULK' : 'CLOSED') + suffix,
+          saleUnit: bulk ? 'kg' : 'unit',
+          packageWeightGrams: bulk ? undefined : 15000,
+        }),
+        token,
+      );
+      const l = await http()
+        .post('/api/stock-locations')
+        .auth(token, { type: 'bearer' })
+        .send({ code: 'BALCAO' + suffix, name: 'Balcão ' + suffix });
+      expect([p.status, l.status]).toEqual([201, 201]);
+      return {
+        productId: p.body.id as string,
+        locationId: l.body.id as string,
+        quantity: bulk ? 2350 : 2,
+      };
+    };
+
+    it('receives closed and bulk SKUs separately, returns zero and computes a total beyond the page', async () => {
+      const closed = await prepare(),
+        bulk = await prepare(tokenA, true, '-G');
+      const empty = await balance(closed.productId, '&locationId=' + closed.locationId);
+      expect(empty.status).toBe(200);
+      expect(empty.body).toMatchObject({
+        unit: 'unit',
+        total: '0',
+        items: [{ locationId: closed.locationId, quantity: 0 }],
+      });
+      const first = await receive({ ...closed, reference: ' LAB-123 ' }, randomUUID());
+      const second = await receive(
+        { ...closed, quantity: 3, locationId: bulk.locationId },
+        randomUUID(),
+      );
+      const weighed = await receive(bulk, randomUUID());
+      expect([first.status, second.status, weighed.status]).toEqual([201, 201, 201]);
+      expect(first.body).toMatchObject({
+        ...closed,
+        unit: 'unit',
+        reference: 'LAB-123',
+        recordedAt: expect.any(String),
+      });
+      expect(weighed.body).toMatchObject({ ...bulk, unit: 'g' });
+      expect(first.body).not.toHaveProperty('actorId');
+      const firstPage = await balance(closed.productId, '&limit=1');
+      expect(firstPage.status).toBe(200);
+      expect(firstPage.body).toMatchObject({
+        unit: 'unit',
+        total: '5',
+        items: [{ locationId: closed.locationId, quantity: 2 }],
+        nextCursor: closed.locationId,
+      });
+      const lastPage = await balance(
+        closed.productId,
+        '&limit=1&before=' + firstPage.body.nextCursor,
+      );
+      expect(lastPage.body).toMatchObject({
+        total: '5',
+        items: [{ locationId: bulk.locationId, quantity: 3 }],
+        nextCursor: null,
+      });
+      expect((await balance(bulk.productId)).body).toMatchObject({ unit: 'g', total: '2350' });
+      expect(await model('StockReceipt').countDocuments()).toBe(3);
+      const receipts = await model('SecurityAuditRecord').find(completion).lean();
+      expect(receipts).toHaveLength(3);
+      expect(JSON.stringify(receipts)).not.toContain('LAB-123');
+      expect(JSON.stringify((await get(closed.productId)).body)).not.toContain(
+        'lastStockReceiptId',
+      );
+    });
+
+    it('uses canonical tenant/actor keys and merges concurrent retries only for identical intentions', async () => {
+      const dto = await prepare(),
+        key = randomUUID();
+      const pair = await Promise.all([
+        receive({ ...dto, reference: ' REF ' }, key),
+        receive(
+          { ...dto, productId: dto.productId.toUpperCase(), reference: 'REF' },
+          key.toUpperCase(),
+          tokenA,
+          1,
+        ),
+      ]);
+      expect(pair.map((x) => x.status).sort()).toEqual([200, 201]);
+      expect(pair[0].body).toEqual(pair[1].body);
+      expect((await intent(key)).body).toEqual(pair[0].body);
+      expect((await receive({ ...dto, quantity: 3 }, key)).status).toBe(409);
+      const distinct = await Promise.all([
+        receive(dto, randomUUID()),
+        receive(dto, randomUUID(), tokenA, 1),
+      ]);
+      expect(distinct.map((x) => x.status)).toEqual([201, 201]);
+      expect((await balance(dto.productId)).body.total).toBe('6');
+      expect(await model('StockReceipt').countDocuments()).toBe(3);
+      expect(await model('SecurityAuditRecord').countDocuments(completion)).toBe(3);
+      const other = await prepare(tokenB);
+      expect((await intent(key, tokenB)).status).toBe(404);
+      expect((await receive(other, key, tokenB)).status).toBe(201);
+      expect((await intent(key, tokenB)).body.productId).toBe(other.productId);
+      expect((await balance(dto.productId, '', tokenB)).status).toBe(404);
+      const otherUser = await model('User').create({
+        name: 'Second manager',
+        email: 'second@example.test',
+        password: await bcrypt.hash(password, 4),
+        status: 'active',
+        roles: ['CUSTOMER'],
+      });
+      await model('OrganizationMembership').create({
+        userId: otherUser._id,
+        organizationId: a,
+        status: 'active',
+        roles: ['MANAGER'],
+      });
+      const login = await http()
+        .post('/api/auth/login')
+        .send({ email: otherUser.email, password, organizationId: a.toString() });
+      expect(login.status).toBe(201);
+      expect((await intent(key, login.body.access_token)).status).toBe(404);
+      expect((await balance(dto.productId, '', login.body.access_token)).status).toBe(200);
+    });
+
+    it('validates quantity, scope, state and unit and aborts an increment over the bound', async () => {
+      const dto = await prepare(),
+        other = await prepare(tokenB);
+      for (const fields of [
+        { quantity: 0 },
+        { quantity: -1 },
+        { quantity: 2.5 },
+        { quantity: '2' },
+        { quantity: 1_000_000_001 },
+        { unit: 'kg' },
+        { organizationId: b.toString() },
+        { reference: 'bad\nref' },
+        { productId: 'bad' },
+      ])
+        expect((await receive({ ...dto, ...fields }, randomUUID())).status).toBe(400);
+      expect((await receive(dto, 'bad-key')).status).toBe(400);
+      for (const fields of [
+        { productId: other.productId },
+        { locationId: other.locationId },
+        { productId: new Types.ObjectId().toString() },
+        { locationId: new Types.ObjectId().toString() },
+      ])
+        expect((await receive({ ...dto, ...fields }, randomUUID())).status).toBe(404);
+      expect((await balance(dto.productId, '&locationId=' + other.locationId)).status).toBe(404);
+      await model('StockLocation').updateOne(
+        { _id: dto.locationId },
+        { $set: { status: 'inactive' } },
+      );
+      expect((await receive(dto, randomUUID())).status).toBe(404);
+      await model('StockLocation').updateOne(
+        { _id: dto.locationId },
+        { $set: { status: 'active' } },
+      );
+      await model('Product').collection.updateOne(
+        { _id: new Types.ObjectId(dto.productId) },
+        { $set: { saleUnit: 'invalid' } },
+      );
+      expect((await receive(dto, randomUUID())).status).toBe(404);
+      await model('Product').collection.updateOne(
+        { _id: new Types.ObjectId(dto.productId) },
+        { $set: { saleUnit: 'unit' } },
+      );
+      expect(await model('StockReceipt').countDocuments()).toBe(0);
+      await model('StockBalance').create({
+        organizationId: a,
+        productId: dto.productId,
+        locationId: dto.locationId,
+        quantity: 999_999_999_999,
+      });
+      expect((await receive(dto, randomUUID())).status).toBe(409);
+      expect((await balance(dto.productId)).body.total).toBe('999999999999');
+      expect(await model('StockReceipt').countDocuments()).toBe(0);
+      expect((await archive(dto.productId)).status).toBe(200);
+      expect((await receive(dto, randomUUID())).status).toBe(404);
+      expect((await balance(dto.productId)).body.total).toBe('999999999999');
+    });
+
+    it('rechecks role/session and denies lookup/replay after loss of entitlement', async () => {
+      const dto = await prepare(),
+        key = randomUUID();
+      await model('OrganizationMembership').updateOne(scope(), {
+        $set: { roles: ['INVENTORY_OPERATOR'] },
+      });
+      expect((await receive(dto, key)).status).toBe(201);
+      expect((await balance(dto.productId)).status).toBe(200);
+      await model('OrganizationMembership').updateOne(scope(), {
+        $set: { roles: ['ORGANIZATION_OWNER'] },
+      });
+      expect((await receive(dto, randomUUID())).status).toBe(201);
+      expect((await intent(key)).status).toBe(200);
+      await model('OrganizationMembership').updateOne(scope(), { $set: { roles: ['CUSTOMER'] } });
+      expect((await intent(key)).status).toBe(403);
+      expect((await receive(dto, key)).status).toBe(403);
+      expect((await balance(dto.productId)).status).toBe(403);
+      await model('OrganizationMembership').updateOne(scope(), { $set: { roles: ['MANAGER'] } });
+      expect((await http().post('/api/auth/logout').auth(tokenA, { type: 'bearer' })).status).toBe(
+        200,
+      );
+      expect((await intent(key)).status).toBe(401);
+      expect((await receive(dto, key)).status).toBe(401);
+    });
+
+    it('keeps the synthetic API off without opt-in and in production even with opt-in', async () => {
+      const dto = await prepare(),
+        key = randomUUID();
+      const cfg = apps[0].get(ConfigService);
+      const flag = 'STOCK_RECEIPTS_SYNTHETIC';
+      const original = cfg.get.bind(cfg);
+      const spy = jest
+        .spyOn(cfg, 'get')
+        .mockImplementation((name: string) => (name === flag ? undefined : original(name)));
+      try {
+        expect((await receive(dto, key)).status).toBe(404);
+        expect((await balance(dto.productId)).status).toBe(404);
+      } finally {
+        spy.mockRestore();
+      }
+      const environment = process.env.NODE_ENV;
+      try {
+        process.env.NODE_ENV = 'production';
+        expect((await receive(dto, key)).status).toBe(404);
+        expect((await intent(key)).status).toBe(404);
+      } finally {
+        if (environment === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = environment;
+      }
+      expect(await model('StockReceipt').countDocuments()).toBe(0);
+      expect(await model('StockBalance').countDocuments()).toBe(0);
+    });
+
+    it('rolls back ledger, increment and catalog guard if a real Mongo audit write fails', async () => {
+      const dto = await prepare(),
+        key = randomUUID();
+      const original = await model('Product')
+        .findById(dto.productId)
+        .select('+lastStockReceiptId')
+        .lean();
+      await db.db.command({
+        collMod: 'security_audit_events',
+        validator: { $nor: [completion] },
+        validationLevel: 'strict',
+      });
+      try {
+        expect((await receive(dto, key)).status).toBe(503);
+        expect((await intent(key)).status).toBe(404);
+        for (const col of ['StockReceipt', 'StockBalance'])
+          expect(await model(col).countDocuments()).toBe(0);
+        expect(
+          await model('Product').findById(dto.productId).select('+lastStockReceiptId').lean(),
+        ).toEqual(original);
+      } finally {
+        await db.db.command({
+          collMod: 'security_audit_events',
+          validator: {},
+          validationLevel: 'strict',
+        });
+      }
+      const recovered = await receive(dto, key);
+      expect(recovered.status).toBe(201);
+      expect((await intent(key)).body).toEqual(recovered.body);
+      expect(await model('SecurityAuditRecord').countDocuments(completion)).toBe(1);
+    });
+
+    it('finds a committed receipt when the HTTP client disconnects before the response', async () => {
+      const dto = await prepare(),
+        key = randomUUID(),
+        service = apps[0].get(StockReceiptsService);
+      const real = service.receive.bind(service);
+      let resolveCommit: () => void, release: () => void;
+      const committed = new Promise<void>((r) => {
+        resolveCommit = r;
+      });
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const spy = jest.spyOn(service, 'receive').mockImplementationOnce(async (...args) => {
+        const result = await real(...args);
+        resolveCommit();
+        await gate;
+        return result;
+      });
+      const controller = new AbortController();
+      const pending = fetch((await apps[0].getUrl()) + endpoint, {
+        method: 'POST',
+        body: JSON.stringify(dto),
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + tokenA,
+          'Idempotency-Key': key,
+        },
+      }).catch((error) => error);
+      try {
+        await Promise.race([
+          committed,
+          pending.then(() => {
+            throw new Error('Response before disconnect');
+          }),
+        ]);
+        controller.abort();
+        expect((await pending).name).toBe('AbortError');
+      } finally {
+        controller.abort();
+        release();
+        spy.mockRestore();
+      }
+      const found = await intent(key);
+      expect(found.status).toBe(200);
+      expect((await receive(dto, key)).body).toEqual(found.body);
+      expect((await balance(dto.productId)).body.total).toBe('2');
+    });
+
+    it('treats an injected unknown outcome after real commit as 503 and reconciles by majority lookup', async () => {
+      const dto = await prepare(),
+        key = randomUUID(),
+        start = db.startSession.bind(db);
+      const spy = jest.spyOn(db, 'startSession').mockImplementationOnce(async (...args) => {
+        const session = await start(...args);
+        const withTransaction = session.withTransaction.bind(session);
+        jest.spyOn(session, 'withTransaction').mockImplementationOnce(async (fn, options) => {
+          await withTransaction(fn, options);
+          throw Object.assign(new Error('Synthetic lost commit acknowledgement'), {
+            hasErrorLabel: (label: string) => label === 'UnknownTransactionCommitResult',
+          });
+        });
+        return session;
+      });
+      try {
+        expect((await receive(dto, key)).status).toBe(503);
+      } finally {
+        spy.mockRestore();
+      }
+      const found = await intent(key);
+      expect(found.status).toBe(200);
+      expect((await receive(dto, key)).status).toBe(200);
+      expect((await balance(dto.productId)).body.total).toBe('2');
+      expect(await model('SecurityAuditRecord').countDocuments(completion)).toBe(1);
+    });
   });
 
   describe('stock location directory', () => {
