@@ -49,6 +49,16 @@ export const POLICY_DEFINITIONS: readonly PolicyDefinition[] = [
       (![PolicyAction.UPDATE, PolicyAction.DELETE].includes(action) ||
         context.resource.accessState === 'active'),
   })),
+  ...[PolicyAction.CREATE, PolicyAction.LIST].map((action) => ({
+    resource: PolicyResource.STOCK_LOCATION,
+    action,
+    roles: [
+      Role.ORGANIZATION_OWNER,
+      Role.MANAGER,
+      ...(action === PolicyAction.LIST ? [Role.INVENTORY_OPERATOR] : []),
+    ],
+    condition: scopedResource,
+  })),
   ...[PolicyAction.READ, PolicyAction.UPDATE].map((action) => ({
     resource: PolicyResource.SESSION_LIMIT_CONFIGURATION,
     action,

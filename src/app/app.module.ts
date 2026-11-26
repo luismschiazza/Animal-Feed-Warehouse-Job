@@ -16,6 +16,7 @@ import { DisciplinesModule } from '@/features/disciplines/disciplines.module';
 import { GradesModule } from '@/features/grades/grades.module';
 import { MeetingsModule } from '@/features/meeting/meeting.module';
 import { ProductsModule } from '@/features/products/products.module';
+import { StockLocationsModule } from '@/features/stock-locations/stock-locations.module';
 import { UsersModule } from '@/features/users/users.module';
 import { DatabaseModule } from '@/insfrastructure/database/database.module';
 import { AppController } from './controllers/app.controller';
@@ -46,6 +47,7 @@ import { AppService } from './services/app.service';
     MeetingsModule,
     UsersModule,
     ProductsModule,
+    StockLocationsModule,
     GradesModule,
     SeedModule,
   ],

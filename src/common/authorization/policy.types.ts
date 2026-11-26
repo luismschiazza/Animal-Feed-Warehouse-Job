@@ -14,6 +14,7 @@ export enum PolicyAction {
 
 export enum PolicyResource {
   PRODUCT = 'product',
+  STOCK_LOCATION = 'stock-location',
   USER = 'user',
   AUDIT_EVENT = 'audit_event',
   OWN_AUDIT_EVENT = 'own_audit_event',

@@ -1,0 +1,15 @@
+# Locais físicos de estoque — primeira entrega
+
+`POST /api/stock-locations` recebe `{ "code": "deposito", "name": "Depósito" }` e retorna `201` com `id`, `code`, `name`, `status`. `GET /api/stock-locations` retorna `{ items, nextCursor }` na organização da sessão. `BALCAO`, `DEPOSITO` e outros são cadastráveis; sem seed ou limite de dois locais. O cadastro não vincula produto, altera o catálogo, registra saldos ou indica disponibilidade.
+
+- Código ASCII 1–32 (`A-Z`, `a-z`, `0-9`, `.`, `_`, `-`, começando com alfanumérico), aparado e convertido para maiúsculas, único na organização e imutável; nome aparado 1–120 sem controles, não único. Campos extras (inclusive organização, situação e quantidade) retornam `400`; código duplicado retorna `409`. Todo local nasce `active`; `inactive` é reservado. Não há rota de edição, desativação ou exclusão.
+- Owner e manager cadastram/consultam; inventory operator apenas consulta. Não há acesso implícito de system admin nem cliente. Sessão, vínculo e organização atual são revalidados pelo fluxo existente; a aplicação filtra no Mongo antes do limite. GET aceita `limit` 1–100 (padrão 25), `before` ObjectId de posição exclusiva na ordem decrescente, não prova de permissão nem snapshot. Reinicie a paginação ao trocar de organização.
+- Criação exige índices válidos, transação no primário com snapshot, revalidação em retry e auditoria de conclusão na mesma transação `w:majority,j:true`. Auditoria indisponível falha fechada (`503`), sem localização parcial ou catálogo. A listagem exige recibo de autorização durável antes da consulta. Código/nome/parâmetros não vão no recibo. Em resposta perdida/commit incerto, verificar listagem antes de tentar de novo: 409 não é confirmação idempotente.
+
+## Provisionamento por operador (não automático)
+
+Coleção `stocklocations` e índices `stock_location_org_code_unique` (tenant/código; unique, sem filtro parcial) e `stock_location_org_page` (tenant/_id decrescente). Em ambiente descartável ou em operação especificamente aprovada, executar `npm run stock-locations:initialize` com `STOCK_LOCATIONS_MONGO_URL` explicitamente definida para a conexão de operador do replica set. Sem URI default, seeds ou reparo. O runtime não recebe credencial de operador: conceder somente `find`, `insert` e `listIndexes` para `stocklocations`, além do ACL preexistente para autenticação/organização/audit. Sem update/delete/index DDL para essa coleção.
+
+## Futuro, fora desta entrega
+
+Nome/situação poderão mudar com política explícita (candidatos owner/manager); código/identidade não. Antes da desativação, impedir saldo físico, reservas, trânsito, lote bloqueado ou operação pendente; proteger a verificação contra lançamento concorrente. Histórico não torna o local utilizável, mas impede apagar/reaproveitar a identidade. Quantidades futuras por organização/produto/local e lotes, total calculado na unidade do produto e transferência com débito e crédito atômicos. Nenhuma conversão entre lacrado e granel implícita.

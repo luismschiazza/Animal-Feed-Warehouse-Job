@@ -24,6 +24,7 @@
     "bootstrap:organization": "ts-node -r tsconfig-paths/register src/commands/bootstrap-organization.script.ts",
     "build": "node scripts/build-with-tsc.cjs",
     "products:initialize": "ts-node -r tsconfig-paths/register src/commands/initialize-products.script.ts",
+    "stock-locations:initialize": "ts-node -r tsconfig-paths/register src/commands/initialize-stock-locations.script.ts",
     "session-admission:initialize": "ts-node -r tsconfig-paths/register src/commands/initialize-session-admission.script.ts",
     "session-replacement:initialize": "ts-node -r tsconfig-paths/register src/commands/initialize-session-replacement.script.ts",
     "session-limits:initialize": "ts-node -r tsconfig-paths/register src/commands/initialize-session-limits.script.ts",
