@@ -174,10 +174,17 @@ export class ProductsService {
 
   list(raw: ListProductsDto, subject: PolicySubject) {
     return this.execute(PolicyAction.LIST, subject, undefined, async (actor) => {
-      const query = this.data(ListProductsDto, raw, ['limit', 'before', 'sku', 'status']);
+      const query = this.data(ListProductsDto, raw, [
+        'limit',
+        'before',
+        'sku',
+        'status',
+        'targetSpecies',
+      ]);
       const scope = {
         ...this.scope(actor),
         ...(query.status === undefined ? {} : { status: query.status }),
+        ...(query.targetSpecies === undefined ? {} : { targetSpecies: query.targetSpecies }),
       };
       if (query.sku !== undefined) {
         if (query.before !== undefined)

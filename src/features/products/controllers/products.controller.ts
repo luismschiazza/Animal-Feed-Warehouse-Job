@@ -17,7 +17,11 @@ import { RequirePolicies } from '@/common/authorization/policy.decorators';
 import { PolicyAction, PolicyResource } from '@/common/authorization/policy.types';
 import { ValidateObjectIdPipe } from '@/common/pipes/validate-object-id.pipe';
 import { ProductDto } from '../dtos/response/product.dto';
-import { CreateProductDto, ProductStatus } from '../dtos/validation/create-product.dto';
+import {
+  CreateProductDto,
+  ProductStatus,
+  TargetSpecies,
+} from '../dtos/validation/create-product.dto';
 import { ListProductsDto } from '../dtos/validation/list-products.dto';
 import { UpdateProductDto } from '../dtos/validation/update-product.dto';
 import { ProductsService } from '../services/products.service';
@@ -60,6 +64,12 @@ export class ProductsController {
     required: false,
     enum: ProductStatus,
     description: 'Commercial status of non-archived products; not stock availability',
+  })
+  @ApiQuery({
+    name: 'targetSpecies',
+    required: false,
+    enum: TargetSpecies,
+    description: 'Exact species classification of non-archived products',
   })
   async list(@Request() req, @Query() query: ListProductsDto) {
     const page = await this.products.list(query, req.user);
