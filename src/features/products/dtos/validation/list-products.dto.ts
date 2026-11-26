@@ -1,6 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import { IsEnum, IsInt, IsMongoId, IsString, Matches, Max, Min, ValidateIf } from 'class-validator';
-import { ProductStatus } from './create-product.dto';
+import { ProductStatus, TargetSpecies } from './create-product.dto';
 import { PRODUCT_SKU_PATTERN, trimProductText } from './product-sku';
 
 export class ListProductsDto {
@@ -16,4 +16,8 @@ export class ListProductsDto {
   @ValidateIf((_o, value) => value !== undefined)
   @IsEnum(ProductStatus)
   status?: ProductStatus;
+
+  @ValidateIf((_o, value) => value !== undefined)
+  @IsEnum(TargetSpecies)
+  targetSpecies?: TargetSpecies;
 }

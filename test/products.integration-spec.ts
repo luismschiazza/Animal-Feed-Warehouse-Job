@@ -17,6 +17,7 @@ import { AccountStatus } from '@/common/enums/account-status.enum';
 import { Role } from '@/common/enums/role.enum';
 import { AuthModule } from '@/features/auth/auth.module';
 import { SESSION_LIMIT_APPLICATION } from '@/features/auth/schemas/session-limit-revision.schema';
+import { TargetSpecies } from '@/features/products/dtos/validation/create-product.dto';
 import { ProductsModule } from '@/features/products/products.module';
 import { ProductsService } from '@/features/products/services/products.service';
 
@@ -840,6 +841,105 @@ describe('Store products — real HTTP, original authentication and two Mongo po
       });
   });
 
+  it('applies species and status before pagination, keeping non-matches, archives and foreign rows out', async () => {
+    const first = await post(product({ sku: 'DOG-FIRST', targetSpecies: 'dog' }));
+    const cat = await post(product({ sku: 'CAT-ONLY', targetSpecies: 'cat' }));
+    const discontinued = await post(
+      product({ sku: 'DOG-DISCONTINUED', targetSpecies: 'dog', status: 'discontinued' }),
+    );
+    const last = await post(product({ sku: 'DOG-LAST', targetSpecies: 'dog' }));
+    const archived = await post(product({ sku: 'DOG-ARCHIVED', targetSpecies: 'dog' }));
+    const foreign = await post(product({ sku: 'DOG-FOREIGN', targetSpecies: 'dog' }), tokenB);
+    for (const r of [first, cat, discontinued, last, archived, foreign]) expect(r.status).toBe(201);
+    expect((await archive(archived.body.id)).status).toBe(200);
+
+    const filter = 'targetSpecies=dog&status=active&limit=1';
+    const page = await listWithQuery(filter);
+    expect(page.status).toBe(200);
+    expect(page.body).toEqual({ items: [last.body], nextCursor: last.body.id });
+    const tail = await listWithQuery(filter + '&before=' + page.body.nextCursor);
+    expect(tail.status).toBe(200);
+    expect(tail.body).toEqual({ items: [first.body], nextCursor: null });
+
+    const everyStatus = await listWithQuery('targetSpecies=dog');
+    expect(everyStatus.status).toBe(200);
+    expect(everyStatus.body).toEqual({
+      items: [last.body, discontinued.body, first.body],
+      nextCursor: null,
+    });
+    const allSpecies = await listWithQuery('status=active&limit=3');
+    expect(allSpecies.status).toBe(200);
+    expect(allSpecies.body).toEqual({ items: [last.body, cat.body, first.body], nextCursor: null });
+    const otherOrg = await listWithQuery(filter, tokenB);
+    expect(otherOrg.status).toBe(200);
+    expect(otherOrg.body).toEqual({ items: [foreign.body], nextCursor: null });
+  });
+
+  it('intersects species, normalized SKU and status without changing the singleton contract', async () => {
+    const pa = await post(product({ sku: 'SAME-SPECIES-TEST', targetSpecies: 'dog' }));
+    const pb = await post(
+      product({ sku: 'SAME-SPECIES-TEST', targetSpecies: 'cat', status: 'discontinued' }),
+      tokenB,
+    );
+    expect(pa.status).toBe(201);
+    expect(pb.status).toBe(201);
+    for (const [suffix, token, items] of [
+      ['targetSpecies=dog&status=active', tokenA, [pa.body]],
+      ['targetSpecies=cat&status=active', tokenA, []],
+      ['targetSpecies=dog&status=discontinued', tokenA, []],
+      ['targetSpecies=cat&status=discontinued', tokenA, []],
+      ['targetSpecies=cat&status=discontinued', tokenB, [pb.body]],
+    ] as const) {
+      const r = await listWithQuery('sku=%20same-species-test%20&limit=1&' + suffix, token);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ items, nextCursor: null });
+    }
+    expect((await archive(pa.body.id)).status).toBe(200);
+    const archived = await listWithQuery('sku=SAME-SPECIES-TEST&targetSpecies=dog');
+    expect(archived.status).toBe(200);
+    expect(archived.body).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('accepts every model species literally and rejects malformed species in HTTP and service', async () => {
+    const other = await post(product({ sku: 'OTHER-SPECIES', targetSpecies: 'other' }));
+    const dog = await post(product({ sku: 'DOG-SPECIES', targetSpecies: 'dog' }));
+    expect(other.status).toBe(201);
+    expect(dog.status).toBe(201);
+    for (const species of Object.values(TargetSpecies)) {
+      const r = await listWithQuery('targetSpecies=' + species);
+      expect(r.status).toBe(200);
+      const expected =
+        species === TargetSpecies.OTHER
+          ? [other.body]
+          : species === TargetSpecies.DOG
+            ? [dog.body]
+            : [];
+      expect(r.body).toEqual({ items: expected, nextCursor: null });
+    }
+    for (const query of [
+      'targetSpecies=',
+      'targetSpecies=null',
+      'targetSpecies=dogs',
+      'targetSpecies=DOG',
+      'targetSpecies=%20dog',
+      'targetSpecies=dog&targetSpecies=dog',
+      'targetSpecies[]=dog',
+      'targetSpecies=dog&before=invalid',
+      'targetSpecies=dog&limit=101',
+      'targetSpecies=dog&sku=DOG-SPECIES&before=' + dog.body.id,
+    ]) {
+      const r = await listWithQuery(query);
+      expect(r.status).toBe(400);
+      expect(r.body).not.toHaveProperty('items');
+    }
+    const actor = await subject(),
+      service = apps[0].get(ProductsService);
+    for (const targetSpecies of [null, false, 1, ['dog'], {}, 'wildcard'])
+      await expect(service.list({ limit: 25, targetSpecies } as any, actor)).rejects.toMatchObject({
+        status: 400,
+      });
+  });
+
   it('rejects malformed SKU and cursor combinations at the HTTP and service boundaries', async () => {
     for (const query of [
       'sku=',
@@ -871,14 +971,16 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('revalidates catalog permissions and session revocation for the exact SKU path', async () => {
+  it('revalidates catalog permissions and session revocation for SKU and filtered listings', async () => {
     expect((await post()).status).toBe(201);
     expect((await exactSku('RACAO-CAO-15KG')).status).toBe(200);
     expect((await listWithQuery('status=active')).status).toBe(200);
+    expect((await listWithQuery('targetSpecies=dog&status=active')).status).toBe(200);
     const scope = { userId: uid, organizationId: a };
     await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['CUSTOMER'] } });
     expect((await exactSku('RACAO-CAO-15KG')).status).toBe(403);
     expect((await listWithQuery('status=active')).status).toBe(403);
+    expect((await listWithQuery('targetSpecies=dog&status=active')).status).toBe(403);
     await model('OrganizationMembership').updateOne(scope, { $set: { roles: ['MANAGER'] } });
     expect((await http().post('/api/auth/logout').auth(tokenA, { type: 'bearer' })).status).toBe(
       200,
@@ -887,6 +989,7 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     expect(revoked.status).toBe(401);
     expect(revoked.body).not.toHaveProperty('items');
     expect((await listWithQuery('status=active')).status).toBe(401);
+    expect((await listWithQuery('targetSpecies=dog&status=active')).status).toBe(401);
   });
 
   it('fails closed when Mongo rejects list authorization audit without writing SKU or query data', async () => {
@@ -906,6 +1009,8 @@ describe('Store products — real HTTP, original authentication and two Mongo po
         await exactSku(sku),
         await listWithQuery('status=active'),
         await listWithQuery('status=active&sku=' + sku),
+        await listWithQuery('targetSpecies=dog&status=active'),
+        await listWithQuery('targetSpecies=dog&status=active&sku=' + sku),
       ]) {
         expect(failure.status).toBe(503);
         expect(failure.body).not.toHaveProperty('items');
@@ -925,7 +1030,10 @@ describe('Store products — real HTTP, original authentication and two Mongo po
     const filtered = await listWithQuery('status=active&sku=' + sku);
     expect(filtered.status).toBe(200);
     expect(filtered.body).toEqual(recovered.body);
-    for (const response of [recovered, filtered, await exactSku(sku + '-MISSING')]) {
+    const combined = await listWithQuery('targetSpecies=dog&status=active&sku=' + sku);
+    expect(combined.status).toBe(200);
+    expect(combined.body).toEqual(recovered.body);
+    for (const response of [recovered, filtered, combined, await exactSku(sku + '-MISSING')]) {
       const events = await model('SecurityAuditRecord')
         .find({ requestId: response.headers['x-request-id'] })
         .lean();
@@ -933,6 +1041,7 @@ describe('Store products — real HTTP, original authentication and two Mongo po
       expect(JSON.stringify(events)).not.toContain(sku);
       expect(JSON.stringify(events)).not.toContain('sku=');
       expect(JSON.stringify(events)).not.toContain('status=');
+      expect(JSON.stringify(events)).not.toContain('targetSpecies');
     }
   });
 
